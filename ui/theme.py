@@ -46,7 +46,7 @@ html, body, .stApp, .stMarkdown, button, textarea, input, label, h1, h2, h3, h4,
 .uf-tagline { color: var(--uf-muted); font-size: .88rem; margin-top: 4px; }
 
 /* gentle lift on hover for buttons and cards */
-.stButton button, .stDownloadButton button, .stFormSubmitButton button {
+.stButton button, .stDownloadButton button, .stFormSubmitButton button, .stLinkButton a {
   border-radius: 10px; font-weight: 600; transition: transform .15s ease, box-shadow .2s ease, border-color .2s ease;
 }
 .stButton button:hover, .stDownloadButton button:hover, .stFormSubmitButton button:hover { transform: translateY(-1px); }
@@ -89,17 +89,12 @@ html, body, .stApp, .stMarkdown, button, textarea, input, label, h1, h2, h3, h4,
 .uf-signin { max-width: 440px; margin: 8vh auto 1.2rem; text-align: center; padding: 40px 32px;
   background: var(--uf-glass); border: 1px solid var(--uf-edge); border-radius: 18px; backdrop-filter: blur(12px);
   box-shadow: 0 0 40px rgba(6, 182, 212, .12); }
-.uf-signin p { color: var(--uf-muted); margin: .8rem 0 1.6rem; }
-.uf-signin-btn { display: inline-flex; align-items: center; gap: 10px; padding: .7em 1.5em; border-radius: 10px;
-  background: var(--uf-accent); color: #04131A !important; font-weight: 700; text-decoration: none;
-  transition: transform .15s ease, box-shadow .2s ease; }
+.uf-signin p { color: var(--uf-muted); margin: .8rem 0 0; }
 .uf-step { display: flex; justify-content: space-between; align-items: center; gap: 12px; text-align: left;
   padding: 12px 14px; margin-top: 14px; border-radius: 10px; background: rgba(255, 255, 255, .04);
   border: 1px solid var(--uf-edge); }
 .uf-ok { color: #4ade80; font-weight: 700; white-space: nowrap; }
 .uf-todo { color: #F87171; font-weight: 700; white-space: nowrap; }
-.uf-step-btn { display: block; margin: 6px 0 4px; font-size: .85rem; text-align: left; }
-.uf-signin-btn:hover { transform: translateY(-1px); box-shadow: 0 6px 22px rgba(6, 182, 212, .4); }
 
 /* final output boxes: readable text instead of code styling, with a cyan edge */
 [class*="st-key-final_"] [data-testid="stCode"] pre {
