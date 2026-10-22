@@ -121,6 +121,23 @@ def test_missing_config_shows_setup_error():
     assert len(at.tabs) == 0
 
 
+def test_setup_error_names_missing_keys_without_values():
+    at = AppTest.from_file(APP, default_timeout=60)
+    at.secrets["github"] = {**CFG, "client_secret": "", "require_star_follow": True, "owner": "", "repo": "writelens"}
+    at.run()
+    msg = at.error[0].value
+    assert "`client_secret`" in msg and "`owner`" in msg and "`client_id`" not in msg
+    assert "cid" not in msg  # never echo a value
+
+
+def test_setup_error_spots_missing_section_header():
+    at = AppTest.from_file(APP, default_timeout=60)
+    at.secrets["client_id"] = "cid"
+    at.secrets["client_secret"] = "cs"
+    at.run()
+    assert "[github]" in at.error[0].value
+
+
 def test_callback_allowed_user_signs_in(monkeypatch):
     monkeypatch.setattr(auth, "exchange_code", lambda cfg, code: "tok")
     monkeypatch.setattr(auth, "fetch_username", lambda token: "Alice")
