@@ -1,0 +1,70 @@
+"""Find character spans of writing issues and render text with them highlighted."""
+
+import html
+import re
+
+from analysis import LONG_SENTENCE_WORDS, WORD, WORDY_PHRASES, split_sentences
+from nlp_checks import is_filler_adverb, is_passive, load_nlp
+
+# category -> label shown in the legend and tooltips
+LABELS = {
+    "wordy": "Wordy phrase",
+    "adverb": "Filler adverb",
+    "passive": "Passive voice",
+    "long": f"Long sentence (over {LONG_SENTENCE_WORDS} words)",
+    "match": "Matching passage",
+    "uncited": "Matching passage, not cited",
+    "cited": "Matching passage, quoted or cited",
+}
+
+Span = tuple[int, int, str]
+
+
+def find_spans(text: str) -> list[Span]:
+    spans: list[Span] = []
+
+    # Longest phrases first; blank each match (keeping offsets) so overlaps count once.
+    remaining = text
+    for phrase in sorted(WORDY_PHRASES, key=len, reverse=True):
+        pattern = rf"\b{re.escape(phrase)}\b"
+        for m in re.finditer(pattern, remaining, re.IGNORECASE):
+            spans.append((m.start(), m.end(), "wordy"))
+        remaining = re.sub(pattern, lambda m: " " * len(m.group()), remaining, flags=re.IGNORECASE)
+
+    pos = 0
+    for sentence in split_sentences(text):
+        start = text.find(sentence, pos)
+        if start < 0:
+            continue
+        pos = start + len(sentence)
+        if len(WORD.findall(sentence)) > LONG_SENTENCE_WORDS:
+            spans.append((start, pos, "long"))
+
+    nlp = load_nlp()
+    if nlp is not None:
+        doc = nlp(text)
+        spans.extend((s.start_char, s.end_char, "passive") for s in doc.sents if is_passive(s))
+        spans.extend((t.idx, t.idx + len(t), "adverb") for t in doc if is_filler_adverb(t))
+
+    return spans
+
+
+def render_html(text: str, spans: list[Span]) -> str:
+    """Escape the text and wrap each run of characters in the classes of the spans covering it."""
+    cuts = sorted({0, len(text), *(s for s, _, _ in spans), *(e for _, e, _ in spans)})
+    parts = []
+    for a, b in zip(cuts, cuts[1:]):
+        chunk = html.escape(text[a:b]).replace("\n", "<br>")
+        cats = sorted({c for s, e, c in spans if s <= a and e >= b})
+        if cats:
+            title = html.escape(", ".join(LABELS[c] for c in cats))
+            classes = " ".join(f"uf-{c}" for c in cats)
+            parts.append(f'<span class="{classes}" title="{title}">{chunk}</span>')
+        else:
+            parts.append(chunk)
+    return f'<div class="uf-highlight">{"".join(parts)}</div>'
+
+
+def legend_html(categories: list[str]) -> str:
+    items = "".join(f'<span class="uf-{c}">{html.escape(LABELS[c])}</span>' for c in categories)
+    return f'<div class="uf-legend">{items}</div>'

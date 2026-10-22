@@ -1,0 +1,21 @@
+[browser]
+gatherUsageStats = false
+
+[server]
+# documents and sources are text; 10 MB is plenty and stops huge uploads tying up the server
+maxUploadSize = 10
+
+[client]
+showSidebarNavigation = false
+# hides the Deploy button and developer menu
+toolbarMode = "minimal"
+# visitors see "an error occurred" instead of the stack trace (file paths, code); the terminal still logs it
+showErrorDetails = "none"
+
+[theme]
+base = "dark"
+primaryColor = "#06B6D4"
+backgroundColor = "#12131C"
+secondaryBackgroundColor = "#1E293B"
+textColor = "#F9FAFB"
+font = "sans serif"

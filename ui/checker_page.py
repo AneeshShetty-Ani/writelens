@@ -1,0 +1,160 @@
+import html
+
+import streamlit as st
+
+from analysis import LONG_SENTENCE_WORDS, analyze, grade_label
+from documents import SUPPORTED, DocumentError, extract_text
+from fixes import apply_fixes
+from highlight import find_spans, legend_html, render_html
+from nlp_checks import REPEAT_MIN, check
+from report import build_markdown
+from score import score_label, writing_score
+from ui.theme import card_html, clear_keys, counter, feed, final_output
+
+MAX_CHARS = 200_000
+
+# A demo paragraph with one of each issue, so the checker can be shown in one click.
+SAMPLE_TEXT = (
+    "It is important to note that the results of the survey were analysed by the research team. "
+    "Due to the fact that a large number of students really struggled with the new timetable, the school "
+    "decided that it would be basically necessary to make some changes to the way that classes were "
+    "organised across the whole of the second term. In order to fix this, a meeting was held. "
+    "The meeting was very useful and the meeting helped the meeting organisers get feedback."
+)
+
+
+def load_sample() -> None:
+    st.session_state["checker_text"] = SAMPLE_TEXT
+
+
+def score_ring_html(score: int) -> str:
+    color = "#4ade80" if score >= 70 else "#f59e0b" if score >= 50 else "#F05252"
+    return (
+        f'<div class="uf-score"><div class="uf-ring" style="background:conic-gradient({color} {score * 3.6}deg,'
+        f'rgba(255,255,255,.08) 0)"><div class="uf-ring-inner"><b>{score}</b><small>/ 100</small></div></div>'
+        f'<div><div class="uf-score-title">Writing score</div>'
+        f'<div class="uf-score-label" style="color:{color}">{score_label(score)}</div></div></div>'
+    )
+
+
+def render_highlighted(text: str, box) -> None:
+    spans = find_spans(text)
+    present = [c for c in ("wordy", "adverb", "passive", "long") if any(s[2] == c for s in spans)]
+    with box:
+        if present:
+            st.markdown(legend_html(present), unsafe_allow_html=True)
+        st.markdown(render_html(text, spans), unsafe_allow_html=True)
+
+
+def word_list(counts: list[tuple[str, int]]) -> str:
+    return ", ".join(f"<i>{html.escape(w)}</i> ×{n}" for w, n in counts)
+
+
+def render_issues(report, nlp) -> None:
+    """Each finding as a card saying what to do: gold for grammar, blue for style."""
+    found_nlp = nlp.passive or nlp.repeated or nlp.weak_verbs or nlp.adverbs
+    if not report.long_sentences and not report.wordy and not found_nlp:
+        st.success("No issues found. Nice and clear!")
+    if not nlp.available:
+        st.warning("Grammar checks unavailable: run `python -m spacy download en_core_web_sm`.")
+
+    cards = [card_html("grammar", "Passive voice", "say who does the action", s) for s in nlp.passive]
+    for phrase, suggestion, hits in report.wordy:
+        cards.append(card_html("style", "Wordy phrase", f"“{phrase}” ×{hits}: replace with <b>{suggestion}</b>"))
+    for s in report.long_sentences:
+        cards.append(card_html("style", "Long sentence", f"{len(s.split())} words (over {LONG_SENTENCE_WORDS}): split it in two", s))
+    if nlp.adverbs:
+        cards.append(card_html("style", "Filler adverbs", f"usually cut them: {word_list(nlp.adverbs)}"))
+    if nlp.weak_verbs:
+        cards.append(card_html("style", "Weak verbs", f"a more specific verb is often clearer: {word_list(nlp.weak_verbs)}"))
+    if nlp.repeated:
+        cards.append(card_html("style", "Repeated words", f"used {REPEAT_MIN}+ times, consider varying: {word_list(nlp.repeated)}"))
+    feed(cards)
+
+
+def render_improved(text: str, report, nlp) -> None:
+    fixed = apply_fixes(text)
+    if fixed.changes:
+        done = ", ".join(f"“{p}” → {r or 'removed'}" + (f" ×{n}" if n > 1 else "") for p, r, n in fixed.changes)
+        note = f"Easy fixes applied: {done}."
+    else:
+        note = "No automatic fixes were needed."
+    todo = [f"{len(nlp.passive)} passive sentence(s)" if nlp.passive else "",
+            f"{len(report.long_sentences)} long sentence(s)" if report.long_sentences else ""]
+    if todo := [t for t in todo if t]:
+        note += f" Still to fix yourself: {' and '.join(todo)} (see the cards above)."
+    final_output("checker", "Improved Text", fixed.text, note, "improved-text.txt")
+
+
+def render_report(text: str, source: str, highlight_box=None) -> None:
+    if len(text) > MAX_CHARS:
+        st.warning(f"Text is long; analysing the first {MAX_CHARS:,} characters.")
+        text = text[:MAX_CHARS]
+
+    report = analyze(text)
+    nlp = check(text)
+
+    ring, c1, c2, c3, c4 = st.columns([2, 1, 1, 1, 1], vertical_alignment="center")
+    ring.markdown(score_ring_html(writing_score(report, nlp)), unsafe_allow_html=True)
+    c1.metric("Words", report.words)
+    c2.metric("Sentences", report.sentences, help=f"Average {report.avg_sentence_len:.1f} words per sentence.")
+    c3.metric("Reading ease", f"{report.reading_ease:.0f}", help="Flesch score: 60-70 is plain English; higher is easier.")
+    c4.metric("Grade level", f"{report.grade_level:.0f}", delta=grade_label(report.grade_level), delta_color="off",
+              help="Flesch-Kincaid: the school year (US grades) a reader needs to follow the text easily.")
+
+    box = highlight_box if highlight_box is not None else st.container()
+    render_highlighted(text, box)
+    with box:
+        render_issues(report, nlp)
+
+    render_improved(text, report, nlp)
+
+    st.download_button(
+        "Download report (.md)",
+        data=build_markdown(report, nlp, source),
+        file_name="writelens-report.md",
+        mime="text/markdown",
+        icon=":material/download:",
+        on_click="ignore",
+    )
+
+
+def render() -> None:
+    st.markdown("### :material/edit_note: Writing Checker")
+    st.write("Paste text or upload a document. Problems are highlighted in place; you decide what to change.")
+
+    tab_paste, tab_upload = st.tabs(["Paste text", "Upload document"])
+
+    with tab_paste:
+        st.markdown("#### Your Text")
+        text = st.text_area(
+            "Your text", key="checker_text", height=320,
+            placeholder="Paste a paragraph or more...", label_visibility="collapsed",
+        )
+        counter(text)
+        b_analyse, b_clear, b_sample = st.columns([2, 1, 1])
+        analyse = b_analyse.button("Analyse Text", key="analyse", type="primary", icon=":material/auto_fix_high:", width="stretch")
+        b_clear.button("Clear All", key="clear_checker", icon=":material/delete:", width="stretch",
+                       on_click=clear_keys, args=("checker_text",))
+        b_sample.button("Try a sample", key="sample_checker", icon=":material/lightbulb:", width="stretch",
+                        on_click=load_sample)
+
+        st.markdown("#### Highlighted Issues")
+        if analyse and text.strip():
+            render_report(text, "Pasted text")
+        else:
+            st.markdown('<div class="uf-placeholder">Analyse your text to see highlights and suggestions here.</div>',
+                        unsafe_allow_html=True)
+
+    with tab_upload:
+        uploaded = st.file_uploader(f"Upload a document ({', '.join('.' + e for e in SUPPORTED)})", type=list(SUPPORTED))
+        if uploaded is not None:
+            try:
+                doc_text = extract_text(uploaded.name, uploaded.getvalue())
+            except DocumentError as exc:
+                st.error(str(exc))
+            else:
+                st.caption(f"Extracted {len(doc_text.split()):,} words from **{uploaded.name}**.")
+                if st.button("Analyse Document", key="analyse_doc", type="primary", icon=":material/auto_fix_high:"):
+                    st.markdown("#### Highlighted Issues")
+                    render_report(doc_text, uploaded.name)
