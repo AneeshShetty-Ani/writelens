@@ -104,10 +104,16 @@ def make_app(query=None) -> AppTest:
     return at
 
 
+def link_buttons(at: AppTest) -> dict[str, str]:
+    """label -> url of every st.link_button on the page."""
+    return {b.proto.label: b.proto.url for b in at.get("link_button")}
+
+
 def test_signed_out_shows_sign_in_and_hides_tools():
     at = make_app().run()
     assert not at.exception
-    assert any("Sign in with GitHub" in m.value for m in at.markdown)
+    url = link_buttons(at)["Sign in with GitHub"]
+    assert url.startswith(auth.AUTHORIZE_URL) and "client_id=cid" in url
     assert len(at.tabs) == 0
 
 
@@ -238,7 +244,9 @@ def test_missing_star_shows_unlock_card(monkeypatch):
     page = "\n".join(m.value for m in at.markdown)
     assert "Star <b>AneeshShetty-Ani/writelens</b></span><span class=\"uf-todo\">" in page
     assert "Follow <b>@AneeshShetty-Ani</b></span><span class=\"uf-ok\">" in page
-    assert 'href="https://github.com/AneeshShetty-Ani/writelens"' in page
+    links = link_buttons(at)
+    assert links["⭐ Star the repo"] == "https://github.com/AneeshShetty-Ani/writelens"
+    assert links["👤 Follow"] == "https://github.com/AneeshShetty-Ani"
 
 
 def test_check_again_lets_user_in_after_starring(monkeypatch):
@@ -283,7 +291,7 @@ def test_different_account_button_signs_out(monkeypatch):
     at = sign_in_as(monkeypatch, "stranger")
     at.button(key="gate_signout").click().run()
     assert "pending_user" not in at.session_state and "pending_token" not in at.session_state
-    assert any("Sign in with GitHub" in m.value for m in at.markdown)
+    assert "Sign in with GitHub" in link_buttons(at)
 
 
 def test_sign_out():
