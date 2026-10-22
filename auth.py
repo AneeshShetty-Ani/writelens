@@ -202,15 +202,17 @@ def render_gate(cfg: dict) -> None:
         '<div class="uf-signin"><div class="uf-logo">write<span>lens</span></div>'
         f"<p>Hi <b>{html.escape(st.session_state['pending_user'])}</b>! One more step to unlock WriteLens:</p>"
         f'<div class="uf-step"><span>⭐ Star <b>{owner}/{repo}</b></span>{mark(starred)}</div>'
-        f'<a class="uf-step-btn" href="{repo_url}" target="_blank" rel="noopener">Open the repo and click Star</a>'
         f'<div class="uf-step"><span>👤 Follow <b>@{owner}</b></span>{mark(following)}</div>'
-        f'<a class="uf-step-btn" href="{owner_url}" target="_blank" rel="noopener">Open the profile and click Follow</a>'
         "</div>",
         unsafe_allow_html=True,
     )
     if error := st.session_state.get("auth_error"):
         st.error(error)
     _, mid, _ = st.columns([1, 2, 1])
+    # link buttons, not HTML links: they work inside Streamlit Cloud's iframe
+    left, right = mid.columns(2)
+    left.link_button("⭐ Star the repo", repo_url, width="stretch")
+    right.link_button("👤 Follow", owner_url, width="stretch")
     mid.button("I've done it, check again", key="gate_check", type="primary", icon=":material/refresh:",
                width="stretch", on_click=refresh_gate, args=(cfg,))
     mid.button("Use a different GitHub account", key="gate_signout", width="stretch", on_click=sign_out)
@@ -259,14 +261,17 @@ def require_login() -> str:
     if "pending_user" in st.session_state:
         render_gate(cfg)
 
-    url = authorize_url(cfg, new_state())
-    # target="_top" so GitHub's page isn't loaded inside Streamlit Cloud's iframe.
     st.markdown(
         '<div class="uf-signin"><div class="uf-logo">write<span>lens</span></div>'
-        "<p>Check your writing, cite your sources and compare documents.</p>"
-        f'<a class="uf-signin-btn" href="{url}" target="_top">Sign in with GitHub</a></div>',
+        "<p>Check your writing, cite your sources and compare documents.</p></div>",
         unsafe_allow_html=True,
     )
+    # Streamlit Cloud runs the app in an iframe that blocks a plain link from leaving it, so use
+    # Streamlit's own link button: GitHub opens in a new tab and returns to the app there.
+    _, mid, _ = st.columns([1, 2, 1])
+    mid.link_button("Sign in with GitHub", authorize_url(cfg, new_state()), type="primary",
+                    icon=":material/login:", width="stretch")
+    mid.caption("Opens GitHub in a new tab. You'll come back to WriteLens there, signed in.")
     if error := st.session_state.get("auth_error"):
         st.error(error)
     st.stop()
