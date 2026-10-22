@@ -57,6 +57,26 @@ def get_config() -> dict | None:
     return cfg
 
 
+def config_problem() -> str:
+    """Why get_config() failed, naming settings but never showing their values."""
+    try:
+        top = list(st.secrets.keys())
+    except Exception:
+        return "The secrets couldn't be read. Either none are saved, or there's a typing mistake such as a missing quote."
+    if "github" not in top:
+        if "client_id" in top or "client_secret" in top:
+            return "Add a line `[github]` at the very top of the secrets, above `client_id`."
+        return "No `[github]` section found. The secrets box may be empty or not saved."
+    gh = st.secrets["github"]
+    needed = ["client_id", "client_secret", "redirect_uri"]
+    if bool(gh.get("require_star_follow", False)):
+        needed += ["owner", "repo"]
+    missing = [k for k in needed if not str(gh.get(k, "")).strip()]
+    if missing:
+        return "Missing or empty under `[github]`: " + ", ".join(f"`{k}`" for k in missing) + "."
+    return "Check the `[github]` secrets for typing mistakes."
+
+
 def new_state() -> str:
     state = secrets.token_urlsafe(32)
     now = time.time()
@@ -206,8 +226,9 @@ def require_login() -> str:
     if cfg is None:
         st.title("🔍 WriteLens")
         st.error(
-            "GitHub sign-in is not configured. Copy `.streamlit/secrets.toml.example` to "
-            "`.streamlit/secrets.toml` and fill in your OAuth app details."
+            f"GitHub sign-in is not configured. {config_problem()}\n\n"
+            "On Streamlit Cloud: **Manage app → ⋮ → Settings → Secrets**. Running locally: copy "
+            "`.streamlit/secrets.toml.example` to `.streamlit/secrets.toml` and fill it in."
         )
         st.stop()
 
