@@ -1,4 +1,4 @@
-from analysis import analyze, count_syllables, split_sentences
+from analysis import analyze, count_syllables, duration, expand_contraction, split_sentences
 
 
 def test_empty_text():
@@ -59,3 +59,46 @@ def test_split_keeps_abbreviations():
 
 def test_split_on_line_breaks():
     assert split_sentences("Introduction\nThis is the start.") == ["Introduction", "This is the start."]
+
+
+def test_cliches_counted():
+    r = analyze("Last but not least, we must Think Outside The Box. We think outside the box daily.")
+    assert r.cliches == [("think outside the box", 2), ("last but not least", 1)]
+
+
+def test_contractions_found_but_not_possessives():
+    r = analyze("We don't know. It’s late, and Sam's car can't start. They'd left. I'm here.")
+    words = dict(r.contractions)
+    assert words == {"don't": 1, "it's": 1, "can't": 1, "they'd": 1, "i'm": 1}
+    assert "sam's" not in words
+    assert analyze("O'Neill wrote it.").contractions == []
+
+
+def test_expand_contraction():
+    assert expand_contraction("don't") == "do not"
+    assert expand_contraction("Can’t") == "cannot"
+    assert expand_contraction("won't") == "will not"
+    assert expand_contraction("they're") == "they are"
+    assert expand_contraction("I've") == "I have"
+    assert expand_contraction("it's") == "it is / has"
+
+
+def test_mixed_spelling_reports_both_and_the_fewer():
+    r = analyze("We analysed the colour data, organised it, then organized the centre.")
+    assert dict(r.uk_spelling) == {"analysed": 1, "colour": 1, "organised": 1, "centre": 1}
+    assert dict(r.us_spelling) == {"organized": 1}
+    assert r.minority_spelling == [("organized", 1)]
+
+
+def test_consistent_spelling_is_not_flagged():
+    for text in ("We analysed the colour of the centre.", "We analyzed the color of the center.",
+                 "The analyses were realistic; a literal meter of labor."):
+        r = analyze(text)
+        assert r.uk_spelling == [] and r.us_spelling == [], text
+
+
+def test_duration():
+    assert duration(0, 238) == "under 1 min"
+    assert duration(100, 238) == "under 1 min"
+    assert duration(1000, 238) == "4 min"
+    assert duration(1300, 130) == "10 min"
