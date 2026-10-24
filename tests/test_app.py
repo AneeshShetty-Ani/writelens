@@ -59,6 +59,20 @@ def test_sample_button_fills_text_and_shows_score():
     assert "Because many students struggled" in improved
 
 
+def test_app_shows_new_checks_times_and_downloads():
+    at = run_with("We don't think outside the box. We analysed it, then organized it.")
+    assert not at.exception
+    page = markdown_html(at)
+    assert "<b>Cliché</b>" in page and 'class="uf-cliche"' in page
+    assert "<b>Contractions</b>" in page and "do not" in page
+    assert "<b>Mixed UK/US spelling</b>" in page and 'class="uf-spelling"' in page
+    assert "Reading: under 1 min | Speaking: under 1 min" in page
+    words = next(m for m in at.metric if m.label == "Words")
+    assert "read" in words.proto.delta
+    labels = [b.proto.label for b in at.get("download_button")]
+    assert {"PDF (.pdf)", "Word (.docx)", "Markdown (.md)"} <= set(labels)
+
+
 def test_app_highlights_issues():
     at = run_with("Due to the fact that it rained, we really stayed.")
     page = markdown_html(at)
