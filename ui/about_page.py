@@ -1,6 +1,6 @@
 import streamlit as st
 
-from analysis import LONG_SENTENCE_WORDS
+from analysis import LONG_SENTENCE_WORDS, READ_WPM, SPEAK_WPM
 from score import WEIGHTS
 from similarity import MATCH_WORDS, NGRAM
 
@@ -11,6 +11,12 @@ SECTIONS = [
   longest phrase is matched first so the same words are never counted twice.
 - **Long sentences**: sentences over {LONG_SENTENCE_WORDS} words. Sentences are split at `. ! ?` and line breaks,
   ignoring abbreviations like *Dr.* and *e.g.*
+- **Clichés, contractions and mixed UK/US spelling**: clichés come from a list of overused expressions
+  (*think outside the box*). Contractions (*don't*, *it's*) are shown with their long form, since essays usually
+  avoid them. Spelling looks for word patterns like *-ise/-ize*, *-our/-or* and *-re/-er*; if both kinds appear,
+  the less-used one is marked so the text can be made consistent.
+- **Reading and speaking time**: words ÷ {READ_WPM} (average silent reading speed) and ÷ {SPEAK_WPM} (a
+  comfortable pace for a talk).
 - **Passive voice, weak verbs, filler adverbs, repeated words**: found with **spaCy**, an NLP library that tags
   each word's part of speech and grammar role. A sentence is passive when spaCy finds a passive subject or
   passive helper verb (`nsubjpass` / `auxpass`), as in *the report **was written***.
@@ -47,7 +53,15 @@ SECTIONS = [
 - Sign-in uses **GitHub OAuth**. After login, the server asks GitHub whether you've starred the WriteLens
   repo and follow its author; only public information is read, and your GitHub sign-in is discarded
   once the check passes.
-- Your text is processed in memory and is not saved anywhere. Refreshing the page signs you out.
+- You stay signed in for 7 days, even after refreshing the page: the address bar holds a signed pass
+  (`?session=...`) that the server checks and that can't be forged. **Logout** removes it. Don't share the full
+  address while signed in, since it carries that pass.
+- Your text is processed in memory and is not saved anywhere.
+"""),
+    ("Uploads and reports", ":material/upload_file:", """
+- Upload **.docx, .pdf, .tex, .md or .txt**. PDF text is read with **pypdf**; a scanned PDF (a picture of pages)
+  has no text to read.
+- Download the Writing Checker report as **PDF** (made with **fpdf2**), **Word** (python-docx) or **Markdown**.
 """),
 ]
 
@@ -58,4 +72,4 @@ def render() -> None:
     for title, icon, body in SECTIONS:
         with st.expander(f"{icon} **{title}**", expanded=title == "Writing Checker"):
             st.markdown(body)
-    st.caption("Built with Python, Streamlit, spaCy, difflib, requests (Crossref API) and python-docx.")
+    st.caption("Built with Python, Streamlit, spaCy, difflib, requests (Crossref API), python-docx, pypdf and fpdf2.")
