@@ -1,14 +1,58 @@
-"""Build a downloadable Markdown report from the analysis results."""
+"""Build a downloadable report (Markdown, Word or PDF) from the analysis results."""
 
+import io
 from datetime import date
 
-from analysis import LONG_SENTENCE_WORDS, Report
+from analysis import LONG_SENTENCE_WORDS, READ_WPM, SPEAK_WPM, Report, duration, expand_contraction
 from nlp_checks import REPEAT_MIN, NlpReport
+from score import score_label, writing_score
+
+TITLE = "WriteLens report"
+NO_SPACY = "Grammar checks were unavailable (spaCy model not installed)."
+
+
+def counted(items: list[tuple[str, int]]) -> str:
+    return ", ".join(f"{w} ×{n}" for w, n in items)
+
+
+def stats_rows(report: Report, nlp: NlpReport) -> list[tuple[str, str]]:
+    score = writing_score(report, nlp)
+    return [
+        ("Writing score", f"{score} / 100 ({score_label(score)})"),
+        ("Words", str(report.words)),
+        ("Sentences", str(report.sentences)),
+        ("Avg sentence length", f"{report.avg_sentence_len:.1f}"),
+        ("Reading ease (Flesch)", f"{report.reading_ease:.0f}"),
+        ("Grade level (Flesch-Kincaid)", f"{report.grade_level:.0f}"),
+        ("Reading time", duration(report.words, READ_WPM)),
+        ("Speaking time", duration(report.words, SPEAK_WPM)),
+    ]
+
+
+def sections(report: Report, nlp: NlpReport) -> list[tuple[str, list[str]]]:
+    """(title, bullet points) for each kind of issue that was found."""
+    found = [
+        ("Wordy phrases", [f"“{p}” ×{n} → consider {s}" for p, s, n in report.wordy]),
+        ("Clichés", [f"“{c}” ×{n} → say it in your own words" for c, n in report.cliches]),
+        (f"Long sentences (over {LONG_SENTENCE_WORDS} words)", list(report.long_sentences)),
+        ("Passive voice", list(nlp.passive)),
+        (f"Repeated words ({REPEAT_MIN}+ uses)", [f"{w} ×{n}" for w, n in nlp.repeated]),
+        ("Weak verbs", [f"{w} ×{n}" for w, n in nlp.weak_verbs]),
+        ("Filler adverbs", [f"{w} ×{n}" for w, n in nlp.adverbs]),
+        ("Contractions (avoid in formal writing)", [f"{w} ×{n} → {expand_contraction(w)}" for w, n in report.contractions]),
+    ]
+    if report.uk_spelling:
+        found.append(("Mixed UK/US spelling", [
+            f"UK: {counted(report.uk_spelling)}",
+            f"US: {counted(report.us_spelling)}",
+            f"Pick one and use it throughout; the fewest changes: {counted(report.minority_spelling)}",
+        ]))
+    return [(title, items) for title, items in found if items]
 
 
 def build_markdown(report: Report, nlp: NlpReport, source: str = "Pasted text") -> str:
     lines = [
-        "# WriteLens report",
+        f"# {TITLE}",
         "",
         f"**Source:** {source}  ",
         f"**Date:** {date.today().isoformat()}",
@@ -17,32 +61,91 @@ def build_markdown(report: Report, nlp: NlpReport, source: str = "Pasted text") 
         "",
         "| Metric | Value |",
         "|---|---|",
-        f"| Words | {report.words} |",
-        f"| Sentences | {report.sentences} |",
-        f"| Avg sentence length | {report.avg_sentence_len:.1f} |",
-        f"| Reading ease (Flesch) | {report.reading_ease:.0f} |",
+        *(f"| {name} | {value} |" for name, value in stats_rows(report, nlp)),
         "",
         "## Suggestions",
         "",
     ]
-
-    sections = 0
-
-    def section(title: str, items: list[str]) -> None:
-        nonlocal sections
-        if items:
-            sections += 1
-            lines.extend([f"### {title}", "", *items, ""])
-
-    section("Wordy phrases", [f"- “{p}” ×{n} → consider {s}" for p, s, n in report.wordy])
-    section(f"Long sentences (over {LONG_SENTENCE_WORDS} words)", [f"- {s}" for s in report.long_sentences])
-    section("Passive voice", [f"- {s}" for s in nlp.passive])
-    section(f"Repeated words ({REPEAT_MIN}+ uses)", [f"- {w} ×{n}" for w, n in nlp.repeated])
-    section("Weak verbs", [f"- {w} ×{n}" for w, n in nlp.weak_verbs])
-    section("Filler adverbs", [f"- {w} ×{n}" for w, n in nlp.adverbs])
+    found = sections(report, nlp)
+    for title, items in found:
+        lines.extend([f"### {title}", "", *(f"- {i}" for i in items), ""])
 
     if not nlp.available:
-        lines.extend(["_Grammar checks were unavailable (spaCy model not installed)._", ""])
-    if sections == 0:
+        lines.extend([f"_{NO_SPACY}_", ""])
+    if not found:
         lines.extend(["No issues found.", ""])
     return "\n".join(lines)
+
+
+def build_docx(report: Report, nlp: NlpReport, source: str = "Pasted text") -> bytes:
+    import docx
+
+    document = docx.Document()
+    document.add_heading(TITLE, level=0)
+    document.add_paragraph(f"Source: {source}\nDate: {date.today().isoformat()}")
+
+    document.add_heading("Stats", level=1)
+    rows = stats_rows(report, nlp)
+    table = document.add_table(rows=len(rows), cols=2)
+    table.style = "Light List Accent 1"
+    for row, (name, value) in zip(table.rows, rows):
+        row.cells[0].text, row.cells[1].text = name, value
+
+    document.add_heading("Suggestions", level=1)
+    found = sections(report, nlp)
+    for title, items in found:
+        document.add_heading(title, level=2)
+        for item in items:
+            document.add_paragraph(item, style="List Bullet")
+    if not nlp.available:
+        document.add_paragraph(NO_SPACY).runs[0].italic = True
+    if not found:
+        document.add_paragraph("No issues found.")
+
+    buf = io.BytesIO()
+    document.save(buf)
+    return buf.getvalue()
+
+
+# PDF's built-in fonts only cover Latin-1, so swap the typographic characters the report uses.
+PDF_CHARS = str.maketrans({"“": '"', "”": '"', "‘": "'", "’": "'", "→": "->", "×": "x", "—": "-", "–": "-", "…": "..."})
+
+
+def pdf_safe(text: str) -> str:
+    return text.translate(PDF_CHARS).encode("latin-1", "replace").decode("latin-1")
+
+
+def build_pdf(report: Report, nlp: NlpReport, source: str = "Pasted text") -> bytes:
+    from fpdf import FPDF
+
+    pdf = FPDF()
+    pdf.set_title(TITLE)
+    pdf.add_page()
+
+    def write(text: str, size: int = 11, style: str = "", gap: float = 1.5) -> None:
+        pdf.set_font("Helvetica", style, size)
+        pdf.multi_cell(0, size * 0.5, pdf_safe(text), new_x="LMARGIN", new_y="NEXT")
+        pdf.ln(gap)
+
+    write(TITLE, 20, "B", 2)
+    write(f"Source: {source}\nDate: {date.today().isoformat()}", 10, gap=4)
+
+    write("Stats", 15, "B")
+    pdf.set_font("Helvetica", size=10)
+    with pdf.table(col_widths=(60, 40), width=120, align="LEFT", first_row_as_headings=False) as table:
+        for name, value in stats_rows(report, nlp):
+            table.row([pdf_safe(name), pdf_safe(value)])
+    pdf.ln(4)
+
+    write("Suggestions", 15, "B")
+    found = sections(report, nlp)
+    for title, items in found:
+        write(title, 12, "B", 1)
+        for item in items:
+            write(f"-  {item}", 10, gap=1)
+        pdf.ln(2)
+    if not nlp.available:
+        write(NO_SPACY, 10, "I")
+    if not found:
+        write("No issues found.", 10)
+    return bytes(pdf.output())
