@@ -4,7 +4,9 @@ import html
 
 import streamlit as st
 
-VERSION = "1.3.0"
+from analysis import READ_WPM, SPEAK_WPM, duration
+
+VERSION = "1.4.0"
 
 CSS = """
 <style>
@@ -122,6 +124,9 @@ html, body, .stApp, .stMarkdown, button, textarea, input, label, h1, h2, h3, h4,
 .uf-passive { background: rgba(245, 158, 11, .2); color: #FDE68A; }
 .uf-wordy { background: rgba(6, 182, 212, .22); color: #A5F3FC; border-radius: 3px; }
 .uf-adverb { text-decoration: underline wavy #67E8F9; text-underline-offset: 4px; }
+.uf-cliche { background: rgba(167, 139, 250, .22); color: #DDD6FE; border-radius: 3px; }
+.uf-contraction { text-decoration: underline dashed #67E8F9; text-underline-offset: 4px; }
+.uf-spelling { text-decoration: underline wavy #F59E0B; text-underline-offset: 4px; }
 .uf-long { border-bottom: 2px dotted #67E8F9; }
 .uf-legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: .82rem; margin: .2rem 0 .8rem; }
 .uf-legend span { padding: 1px 6px; }
@@ -194,8 +199,10 @@ def final_output(key: str, title: str, text: str, note: str = "", file_name: str
 
 
 def counter(text: str) -> None:
+    words = len(text.split())
+    times = f" | Reading: {duration(words, READ_WPM)} | Speaking: {duration(words, SPEAK_WPM)}" if words else ""
     st.markdown(
-        f'<div class="uf-counter">Words: {len(text.split()):,} | Characters: {len(text):,}</div>',
+        f'<div class="uf-counter">Words: {words:,} | Characters: {len(text):,}{times}</div>',
         unsafe_allow_html=True,
     )
 
