@@ -1,10 +1,10 @@
-"""Extract plain prose from uploaded documents (.docx, .tex, .md, .txt) for analysis."""
+"""Extract plain prose from uploaded documents (.docx, .pdf, .tex, .md, .txt) for analysis."""
 
 import io
 import re
 import zipfile
 
-SUPPORTED = ("docx", "tex", "md", "txt")
+SUPPORTED = ("docx", "pdf", "tex", "md", "txt")
 MAX_BYTES = 10 * 1024 * 1024
 
 
@@ -21,6 +21,8 @@ def extract_text(filename: str, data: bytes) -> str:
 
     if ext == "docx":
         text = docx_to_text(data)
+    elif ext == "pdf":
+        text = pdf_to_text(data)
     else:
         raw = data.decode("utf-8", errors="replace")
         text = {"tex": tex_to_text, "md": md_to_text, "txt": lambda s: s}[ext](raw)
@@ -54,6 +56,28 @@ def docx_to_text(data: bytes) -> str:
                 if cell.text.strip():
                     parts.append(cell.text)
     return "\n\n".join(parts)
+
+
+def pdf_to_text(data: bytes) -> str:
+    from pypdf import PdfReader
+    from pypdf.errors import PdfReadError
+
+    try:
+        reader = PdfReader(io.BytesIO(data))
+        # many PDFs are "encrypted" with an empty password only to block editing; those still open
+        if reader.is_encrypted and not reader.decrypt(""):
+            raise DocumentError("This PDF is password-protected. Remove the password and upload it again.")
+        pages = [page.extract_text() or "" for page in reader.pages]
+    except (PdfReadError, ValueError, KeyError) as exc:
+        raise DocumentError("This doesn't look like a valid .pdf file.") from exc
+
+    text = "\n\n".join(pages)
+    # PDFs break lines at the page edge: rejoin hyphenated words, then lines inside a paragraph.
+    text = re.sub(r"(\w)-\n(\w)", r"\1\2", text)
+    text = re.sub(r"(?<![.!?:\n])\n(?!\n)", " ", text)
+    if not text.strip():
+        raise DocumentError("No text found in this PDF. If it's a scan (a picture of pages), it has no text to read.")
+    return text
 
 
 # LaTeX commands whose argument is prose worth analysing.
