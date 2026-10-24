@@ -4,7 +4,8 @@ from analysis import Report
 from nlp_checks import NlpReport
 
 # points taken off per occurrence of each kind of issue
-WEIGHTS = {"passive": 3, "wordy": 2, "long": 4, "adverb": 1, "weak_verb": 1, "repeated": 1}
+WEIGHTS = {"passive": 3, "wordy": 2, "long": 4, "cliche": 2, "adverb": 1, "weak_verb": 1, "repeated": 1,
+           "contraction": 1, "mixed_spelling": 1}
 PER_WORDS = 100  # issues are counted per this many words, so long texts aren't punished for length
 MIN_WORDS = 50   # a 10-word text with one issue shouldn't drop to zero
 
@@ -17,6 +18,9 @@ def issue_points(report: Report, nlp: NlpReport) -> int:
         + WEIGHTS["adverb"] * sum(n for _, n in nlp.adverbs)
         + WEIGHTS["weak_verb"] * sum(n for _, n in nlp.weak_verbs)
         + WEIGHTS["repeated"] * len(nlp.repeated)
+        + WEIGHTS["cliche"] * sum(n for _, n in report.cliches)
+        + WEIGHTS["contraction"] * sum(n for _, n in report.contractions)
+        + WEIGHTS["mixed_spelling"] * sum(n for _, n in report.minority_spelling)
     )
 
 
