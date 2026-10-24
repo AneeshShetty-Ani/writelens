@@ -2,12 +2,12 @@ import html
 
 import streamlit as st
 
-from analysis import LONG_SENTENCE_WORDS, analyze, grade_label
+from analysis import LONG_SENTENCE_WORDS, READ_WPM, SPEAK_WPM, analyze, duration, expand_contraction, grade_label
 from documents import SUPPORTED, DocumentError, extract_text
 from fixes import apply_fixes
 from highlight import find_spans, legend_html, render_html
 from nlp_checks import REPEAT_MIN, check
-from report import build_markdown
+from report import build_docx, build_markdown, build_pdf
 from score import score_label, writing_score
 from ui.theme import card_html, clear_keys, counter, feed, final_output
 
@@ -39,7 +39,8 @@ def score_ring_html(score: int) -> str:
 
 def render_highlighted(text: str, box) -> None:
     spans = find_spans(text)
-    present = [c for c in ("wordy", "adverb", "passive", "long") if any(s[2] == c for s in spans)]
+    kinds = ("wordy", "cliche", "adverb", "contraction", "spelling", "passive", "long")
+    present = [c for c in kinds if any(s[2] == c for s in spans)]
     with box:
         if present:
             st.markdown(legend_html(present), unsafe_allow_html=True)
@@ -53,7 +54,8 @@ def word_list(counts: list[tuple[str, int]]) -> str:
 def render_issues(report, nlp) -> None:
     """Each finding as a card saying what to do: gold for grammar, blue for style."""
     found_nlp = nlp.passive or nlp.repeated or nlp.weak_verbs or nlp.adverbs
-    if not report.long_sentences and not report.wordy and not found_nlp:
+    found = report.long_sentences or report.wordy or report.cliches or report.contractions or report.uk_spelling
+    if not found and not found_nlp:
         st.success("No issues found. Nice and clear!")
     if not nlp.available:
         st.warning("Grammar checks unavailable: run `python -m spacy download en_core_web_sm`.")
@@ -61,6 +63,12 @@ def render_issues(report, nlp) -> None:
     cards = [card_html("grammar", "Passive voice", "say who does the action", s) for s in nlp.passive]
     for phrase, suggestion, hits in report.wordy:
         cards.append(card_html("style", "Wordy phrase", f"“{phrase}” ×{hits}: replace with <b>{suggestion}</b>"))
+    for phrase, hits in report.cliches:
+        cards.append(card_html("style", "Cliché", f"“{phrase}” ×{hits}: say it in your own words"))
+    if report.uk_spelling:
+        cards.append(card_html("grammar", "Mixed UK/US spelling",
+                               f"pick one. UK: {word_list(report.uk_spelling)}. US: {word_list(report.us_spelling)}. "
+                               f"Fewest changes: fix {word_list(report.minority_spelling)}"))
     for s in report.long_sentences:
         cards.append(card_html("style", "Long sentence", f"{len(s.split())} words (over {LONG_SENTENCE_WORDS}): split it in two", s))
     if nlp.adverbs:
@@ -69,6 +77,9 @@ def render_issues(report, nlp) -> None:
         cards.append(card_html("style", "Weak verbs", f"a more specific verb is often clearer: {word_list(nlp.weak_verbs)}"))
     if nlp.repeated:
         cards.append(card_html("style", "Repeated words", f"used {REPEAT_MIN}+ times, consider varying: {word_list(nlp.repeated)}"))
+    if report.contractions:
+        expanded = ", ".join(f"<i>{html.escape(w)}</i> → {html.escape(expand_contraction(w))}" for w, _ in report.contractions)
+        cards.append(card_html("style", "Contractions", f"fine in casual writing; in essays write them out: {expanded}"))
     feed(cards)
 
 
@@ -96,7 +107,9 @@ def render_report(text: str, source: str, highlight_box=None) -> None:
 
     ring, c1, c2, c3, c4 = st.columns([2, 1, 1, 1, 1], vertical_alignment="center")
     ring.markdown(score_ring_html(writing_score(report, nlp)), unsafe_allow_html=True)
-    c1.metric("Words", report.words)
+    c1.metric("Words", report.words, delta=f"{duration(report.words, READ_WPM)} read", delta_color="off",
+              help=f"Reading time at {READ_WPM} words a minute. Spoken aloud (e.g. a presentation) at "
+                   f"{SPEAK_WPM} words a minute: {duration(report.words, SPEAK_WPM)}.")
     c2.metric("Sentences", report.sentences, help=f"Average {report.avg_sentence_len:.1f} words per sentence.")
     c3.metric("Reading ease", f"{report.reading_ease:.0f}", help="Flesch score: 60-70 is plain English; higher is easier.")
     c4.metric("Grade level", f"{report.grade_level:.0f}", delta=grade_label(report.grade_level), delta_color="off",
@@ -109,14 +122,15 @@ def render_report(text: str, source: str, highlight_box=None) -> None:
 
     render_improved(text, report, nlp)
 
-    st.download_button(
-        "Download report (.md)",
-        data=build_markdown(report, nlp, source),
-        file_name="writelens-report.md",
-        mime="text/markdown",
-        icon=":material/download:",
-        on_click="ignore",
-    )
+    st.markdown("#### :material/download: Download report")
+    d_pdf, d_docx, d_md = st.columns(3)
+    d_pdf.download_button("PDF (.pdf)", build_pdf(report, nlp, source), "writelens-report.pdf", "application/pdf",
+                          key="report_pdf", icon=":material/picture_as_pdf:", on_click="ignore", width="stretch")
+    d_docx.download_button("Word (.docx)", build_docx(report, nlp, source), "writelens-report.docx",
+                           "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                           key="report_docx", icon=":material/description:", on_click="ignore", width="stretch")
+    d_md.download_button("Markdown (.md)", build_markdown(report, nlp, source), "writelens-report.md", "text/markdown",
+                         key="report_md", icon=":material/article:", on_click="ignore", width="stretch")
 
 
 def render() -> None:
