@@ -18,12 +18,13 @@ PAGES = {
 # Streamlit deletes the state of widgets that aren't drawn, so text typed on one page would be
 # lost after visiting another. Re-assigning these keys every run keeps them.
 PERSISTENT_KEYS = (
-    "checker_text", "plag_source", "plag_submission", "plag_n", "plag_cite", "plag_draft", "plag_source_text",
+    "checker_text", "word_limit", "plag_source", "plag_submission", "plag_n", "plag_cite", "plag_draft", "plag_source_text",
     "cite_style", "cite_text", "doc_a", "doc_b",
 )
 VERSION_HISTORY = [
     ("1.4.0", "PDF upload, report download as PDF and Word, cliché / contraction / mixed UK-US spelling checks, "
-              "reading and speaking time, stay signed in after a refresh"),
+              "reading and speaking time, stay signed in after a refresh, score change between drafts, word limit, "
+              "sentence-length chart, Chicago citations, contractions expanded in Improved Text"),
     ("1.3.0", "Writing score and grade level, one-click sample text, How it works page, new sign-in screen"),
     ("1.2.0", "Frosted Obsidian theme, top navigation instead of a sidebar, single-column layout with issues in a grid below the text"),
     ("1.1.0", "Nordic Indigo theme with glowing-outline cards, colour-coded issue cards, 60/40 workspace layout, difflib sequence score"),
@@ -35,9 +36,12 @@ VERSION_HISTORY = [
     ("0.1", "Readability stats, wordy phrases, long sentences"),
 ]
 WHATS_NEW = [
+    ("Draft tracking", "re-analyse after editing to see your score change and which issues you fixed"),
+    ("Word limit", "set your assignment's limit and watch the progress bar"),
+    ("New checks", "clichés, contractions, mixed UK/US spelling and sentence variety, with a sentence-length chart"),
     ("PDF upload", "check, compare or cite a .pdf, on every page"),
     ("Reports", "download the Writing Checker report as PDF or Word, not just Markdown"),
-    ("New checks", "clichés, contractions and mixed UK/US spelling, highlighted in the text"),
+    ("Chicago style", "a fifth citation format, next to IEEE, APA, MLA and Harvard"),
     ("Reading time", "reading and speaking time next to the word count"),
     ("Stay signed in", "refreshing the page no longer signs you out"),
 ]

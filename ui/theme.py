@@ -86,6 +86,11 @@ html, body, .stApp, .stMarkdown, button, textarea, input, label, h1, h2, h3, h4,
 .uf-ring-inner small { color: var(--uf-muted); font-size: .72rem; margin-top: 3px; }
 .uf-score-title { color: var(--uf-muted); font-size: .85rem; }
 .uf-score-label { font-size: 1.25rem; font-weight: 700; }
+.uf-score-change { font-size: .82rem; font-weight: 600; margin-top: 2px; }
+.uf-up { color: #4ade80; }
+.uf-down { color: #F87171; }
+.uf-drafts { border-radius: 10px; padding: 10px 14px; margin: .2rem 0 1rem; font-size: .9rem;
+  background: var(--uf-glass); border: 1px solid var(--uf-edge); }
 
 /* sign-in screen */
 .uf-signin { max-width: 440px; margin: 8vh auto 1.2rem; text-align: center; padding: 40px 32px;

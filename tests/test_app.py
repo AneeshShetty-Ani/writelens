@@ -73,6 +73,46 @@ def test_app_shows_new_checks_times_and_downloads():
     assert {"PDF (.pdf)", "Word (.docx)", "Markdown (.md)"} <= set(labels)
 
 
+def test_second_draft_shows_score_change():
+    at = run_with("We don't think outside the box. Due to the fact that it rained, we stayed in order to rest.")
+    assert 'class="uf-drafts"' not in markdown_html(at)  # nothing to compare the first draft with
+    at.text_area(key="checker_text").input("We stayed because it rained.")
+    at.button(key="analyse").click().run()
+    page = markdown_html(at)
+    assert "Since your last draft:" in page and "since last draft" in page
+    assert "Fixed: 2 wordy phrases, 1 cliché, 1 contraction" in page
+    # analysing the same text again still compares with the earlier draft
+    at.button(key="analyse").click().run()
+    assert "Fixed: 2 wordy phrases" in markdown_html(at)
+
+
+def test_clear_all_forgets_previous_draft():
+    at = run_with("We don't think outside the box.")
+    at.button(key="clear_checker").click().run()
+    at.text_area(key="checker_text").input("Cats chase mice.")
+    at.button(key="analyse").click().run()
+    assert 'class="uf-drafts"' not in markdown_html(at)
+
+
+def test_word_limit():
+    at = signed_in_app().run()
+    at.number_input(key="word_limit").set_value(10)
+    at.text_area(key="checker_text").input("one two three four five six seven eight nine ten eleven twelve").run()
+    assert "2 words over the 10-word limit." in at.warning[0].value
+    at.text_area(key="checker_text").input("one two three").run()
+    assert not at.warning
+    assert "Aim for at least 9 (6 more)" in at.get("progress")[0].proto.text
+    at.number_input(key="word_limit").set_value(0).run()
+    assert not at.get("progress")
+
+
+def test_sentence_chart_and_variety_card():
+    at = run_with(" ".join(["The cat sat on the warm mat today."] * 6))
+    assert not at.exception
+    assert "<b>Sentence variety</b>" in markdown_html(at)
+    assert len(at.get("vega_lite_chart")) == 1
+
+
 def test_app_highlights_issues():
     at = run_with("Due to the fact that it rained, we really stayed.")
     page = markdown_html(at)

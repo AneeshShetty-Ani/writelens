@@ -7,7 +7,7 @@ from dataclasses import asdict, dataclass, field
 
 import requests
 
-STYLES = ("IEEE", "APA", "MLA", "Harvard")
+STYLES = ("IEEE", "APA", "MLA", "Harvard", "Chicago")  # Chicago = author-date (17th ed.)
 KINDS = {"article": "Journal article", "book": "Book", "web": "Web page"}
 CROSSREF_URL = "https://api.crossref.org/works/"
 TIMEOUT = 10
@@ -130,7 +130,7 @@ def in_text(refs: list[Reference], style: str, numbers: dict[str, int]) -> str:
     year = lambda r: r.year or "n.d."  # noqa: E731
     if style == "APA":
         inner = [f"{author_part(r, style)}, {year(r)}" for r in refs]
-    elif style == "Harvard":
+    elif style in ("Harvard", "Chicago"):
         inner = [f"{author_part(r, style)} {year(r)}" for r in refs]
     else:  # MLA
         inner = [author_part(r, style) for r in refs]
@@ -212,6 +212,20 @@ def _authors_harvard(ref: Reference) -> str:
     return ", ".join(names[:-1]) + " and " + names[-1]
 
 
+def _authors_chicago(ref: Reference) -> str:
+    """First author "Family, Given", the rest "Given Family": "Lee, Anna, and Min Park"."""
+    if not ref.authors:
+        return ""
+    family, given = split_name(ref.authors[0])
+    names = [f"{family}, {given}".strip(", ")]
+    names += [f"{g} {f}".strip() for f, g in map(split_name, ref.authors[1:])]
+    if len(names) > 10:  # Chicago lists up to ten, otherwise the first seven and "et al."
+        return ", ".join(names[:7]) + ", et al."
+    if len(names) == 1:
+        return names[0]
+    return ", ".join(names[:-1]) + ", and " + names[-1]
+
+
 def _link(ref: Reference) -> str:
     return f"https://doi.org/{ref.doi}" if ref.doi else ref.url
 
@@ -263,6 +277,22 @@ def format_entry(ref: Reference, style: str) -> str:
         bits += [f"pp. {ref.pages}"] if ref.pages else []
         bits += [link] if link else []
         return f'{lead}"{ref.title}." {", ".join(bits)}.'.strip()
+
+    if style == "Chicago":
+        a = _authors_chicago(ref)
+        title = f"*{ref.title}*. " if ref.kind == "book" else f"“{ref.title}.” "
+        if ref.kind == "article":
+            src = f"*{ref.container}*" if ref.container else ""
+            src += f" {ref.volume}" if ref.volume else ""
+            src += f" ({ref.issue})" if ref.issue else ""
+            src += f": {ref.pages}" if ref.pages else ""
+            src = f"{src.strip()}. " if src else ""
+        else:
+            src = f"{ref.container.rstrip('.')}. " if ref.container else ""
+        # with no author, the title takes the author's place in front of the year
+        year = f"{y} " if y.endswith(".") else f"{y}. "  # "n.d." already ends in a full stop
+        parts = [f"{a.rstrip('.')}. ", year, title] if a else [title, year]
+        return ("".join(parts) + src + (f"{link}." if link else "")).strip()
 
     # Harvard
     a = _authors_harvard(ref)

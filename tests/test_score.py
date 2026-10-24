@@ -1,6 +1,20 @@
 from analysis import Report, analyze, grade_label
 from nlp_checks import NlpReport
-from score import score_label, writing_score
+from score import compare_drafts, describe_counts, issue_counts, score_label, writing_score
+
+
+def test_compare_drafts_and_describe():
+    before = {"passive": 3, "wordy": 1, "cliche": 0, "long": 2}
+    after = {"passive": 1, "wordy": 1, "cliche": 1, "long": 0}
+    fixed, new = compare_drafts(before, after)
+    assert fixed == {"passive": 2, "long": 2} and new == {"cliche": 1}
+    assert describe_counts(fixed) == "2 passive sentences, 2 long sentences"
+    assert describe_counts({"cliche": 1, "adverb": 0}) == "1 cliché"
+
+
+def test_issue_counts_cover_every_weight():
+    counts = issue_counts(analyze("We don't think outside the box."), NlpReport())
+    assert counts["contraction"] == 1 and counts["cliche"] == 1 and counts["passive"] == 0
 
 
 def test_clean_text_scores_high():

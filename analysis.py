@@ -42,6 +42,10 @@ WORDY_PHRASES = {
 LONG_SENTENCE_WORDS = 30
 READ_WPM = 238  # average silent reading speed for adults
 SPEAK_WPM = 130  # a comfortable pace for a speech or presentation
+# Sentence variety: with at least this many sentences, lengths whose standard deviation is under
+# this share of the average count as "all about the same length".
+VARIETY_MIN_SENTENCES = 5
+VARIETY_MIN_SPREAD = 0.25
 
 # Overused expressions. "at the end of the day" is a wordy phrase above, so it isn't repeated here.
 CLICHES = (
@@ -95,12 +99,23 @@ class Report:
     reading_ease: float = 0.0
     grade_level: float = 0.0
     long_sentences: list[str] = field(default_factory=list)
+    sentence_lengths: list[int] = field(default_factory=list)  # words in each sentence, in order
     wordy: list[tuple[str, str, int]] = field(default_factory=list)
     cliches: list[tuple[str, int]] = field(default_factory=list)
     contractions: list[tuple[str, int]] = field(default_factory=list)
     # filled only when the text mixes the two: the UK-spelled and US-spelled words, with counts
     uk_spelling: list[tuple[str, int]] = field(default_factory=list)
     us_spelling: list[tuple[str, int]] = field(default_factory=list)
+
+    @property
+    def monotonous(self) -> bool:
+        """True when most sentences have nearly the same length, which makes writing read flat."""
+        lengths = self.sentence_lengths
+        if len(lengths) < VARIETY_MIN_SENTENCES:
+            return False
+        mean = sum(lengths) / len(lengths)
+        spread = (sum((n - mean) ** 2 for n in lengths) / len(lengths)) ** 0.5
+        return spread / mean < VARIETY_MIN_SPREAD
 
     @property
     def minority_spelling(self) -> list[tuple[str, int]]:
@@ -184,8 +199,9 @@ def analyze(text: str) -> Report:
     # Flesch-Kincaid grade: the US school year that can follow the text.
     report.grade_level = max(0.0, 0.39 * report.avg_sentence_len + 11.8 * (syllables / len(words)) - 15.59)
 
+    report.sentence_lengths = [len(WORD.findall(s)) for s in sentences]
     report.long_sentences = [
-        s for s in sentences if len(WORD.findall(s)) > LONG_SENTENCE_WORDS
+        s for s, n in zip(sentences, report.sentence_lengths) if n > LONG_SENTENCE_WORDS
     ]
 
     # Longest phrases first, blanking each match, so "due to the fact that" is not

@@ -50,8 +50,8 @@ def test_docx_report():
 
 
 def test_pdf_report_survives_unicode():
-    data = build_pdf(analyze(MESSY + " Café “naïve” résumé — 漢字."), NlpReport(), "my essay.docx")
+    data = build_pdf(analyze(MESSY + " Café “naïve” résumé — 漢字."), NlpReport(), "my essay 漢字.docx")
     text = "\n".join(page.extract_text() for page in PdfReader(io.BytesIO(data)).pages)
-    assert "WriteLens report" in text and "my essay.docx" in text
-    assert "don't x1 -> do not" in text
+    assert "WriteLens report" in text and "my essay ??.docx" in text  # no Chinese in the font: shown as ?
+    assert "don't ×1 → do not" in text  # the bundled font draws these
     assert "Writing score" in text

@@ -2,6 +2,7 @@
 
 import io
 from datetime import date
+from pathlib import Path
 
 from analysis import LONG_SENTENCE_WORDS, READ_WPM, SPEAK_WPM, Report, duration, expand_contraction
 from nlp_checks import REPEAT_MIN, NlpReport
@@ -107,12 +108,11 @@ def build_docx(report: Report, nlp: NlpReport, source: str = "Pasted text") -> b
     return buf.getvalue()
 
 
-# PDF's built-in fonts only cover Latin-1, so swap the typographic characters the report uses.
-PDF_CHARS = str.maketrans({"“": '"', "”": '"', "‘": "'", "’": "'", "→": "->", "×": "x", "—": "-", "–": "-", "…": "..."})
-
-
-def pdf_safe(text: str) -> str:
-    return text.translate(PDF_CHARS).encode("latin-1", "replace").decode("latin-1")
+# DejaVu Sans (free licence, see fonts/LICENSE-DejaVu.txt) covers Latin, Greek, Cyrillic and the
+# arrows and quotes the report uses. PDF's built-in fonts only cover Western European letters.
+FONT_DIR = Path(__file__).parent / "fonts"
+PDF_FONT = "DejaVu"
+PDF_FONT_FILES = {"": "DejaVuSans.ttf", "B": "DejaVuSans-Bold.ttf", "I": "DejaVuSans-Oblique.ttf"}
 
 
 def build_pdf(report: Report, nlp: NlpReport, source: str = "Pasted text") -> bytes:
@@ -120,21 +120,28 @@ def build_pdf(report: Report, nlp: NlpReport, source: str = "Pasted text") -> by
 
     pdf = FPDF()
     pdf.set_title(TITLE)
+    for style, file in PDF_FONT_FILES.items():
+        pdf.add_font(PDF_FONT, style, str(FONT_DIR / file))
     pdf.add_page()
+    covered = pdf.fonts[PDF_FONT.lower()].cmap  # fpdf2 keys fonts by lower-cased family + style
+
+    def safe(text: str) -> str:
+        # characters the font can't draw (e.g. Chinese or Hindi) would come out blank, so show "?"
+        return "".join(c if ord(c) in covered or c in "\n\t" else "?" for c in text)
 
     def write(text: str, size: int = 11, style: str = "", gap: float = 1.5) -> None:
-        pdf.set_font("Helvetica", style, size)
-        pdf.multi_cell(0, size * 0.5, pdf_safe(text), new_x="LMARGIN", new_y="NEXT")
+        pdf.set_font(PDF_FONT, style, size)
+        pdf.multi_cell(0, size * 0.5, safe(text), new_x="LMARGIN", new_y="NEXT")
         pdf.ln(gap)
 
     write(TITLE, 20, "B", 2)
     write(f"Source: {source}\nDate: {date.today().isoformat()}", 10, gap=4)
 
     write("Stats", 15, "B")
-    pdf.set_font("Helvetica", size=10)
+    pdf.set_font(PDF_FONT, size=10)
     with pdf.table(col_widths=(60, 40), width=120, align="LEFT", first_row_as_headings=False) as table:
         for name, value in stats_rows(report, nlp):
-            table.row([pdf_safe(name), pdf_safe(value)])
+            table.row([safe(name), safe(value)])
     pdf.ln(4)
 
     write("Suggestions", 15, "B")

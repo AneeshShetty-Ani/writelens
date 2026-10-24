@@ -1,6 +1,6 @@
 import streamlit as st
 
-from analysis import LONG_SENTENCE_WORDS, READ_WPM, SPEAK_WPM
+from analysis import LONG_SENTENCE_WORDS, READ_WPM, SPEAK_WPM, VARIETY_MIN_SENTENCES, VARIETY_MIN_SPREAD
 from score import WEIGHTS
 from similarity import MATCH_WORDS, NGRAM
 
@@ -17,6 +17,15 @@ SECTIONS = [
   the less-used one is marked so the text can be made consistent.
 - **Reading and speaking time**: words ÷ {READ_WPM} (average silent reading speed) and ÷ {SPEAK_WPM} (a
   comfortable pace for a talk).
+- **Sentence variety**: the chart shows the words in each sentence. With {VARIETY_MIN_SENTENCES}+ sentences, if
+  the standard deviation of their lengths is under {VARIETY_MIN_SPREAD:.0%} of the average, they're all about
+  the same length and the writing tends to sound flat.
+- **Score change between drafts**: each analysis remembers its score and issue counts (in memory, for this
+  visit only). Analyse an edited version and you see the change and which issues were fixed or are new.
+  **Clear All** forgets the previous draft.
+- **Word limit**: enter your assignment's limit. Within 10% under it counts as on target.
+- **Improved Text** also writes out contractions that have only one meaning (*don't → do not*). Ones with two
+  (*it's* = it is / it has, *he'd* = he would / he had) are left for you.
 - **Passive voice, weak verbs, filler adverbs, repeated words**: found with **spaCy**, an NLP library that tags
   each word's part of speech and grammar role. A sentence is passive when spaCy finds a passive subject or
   passive helper verb (`nsubjpass` / `auxpass`), as in *the report **was written***.
@@ -37,7 +46,7 @@ SECTIONS = [
 """),
     ("Citations", ":material/format_quote:", """
 - **DOI lookup** asks the free Crossref API for the title, authors, journal and year.
-- References are formatted in **IEEE, APA, MLA or Harvard** style.
+- References are formatted in **IEEE, APA, MLA, Harvard or Chicago** (author-date) style.
 - Write `[@key]` in your text; WriteLens replaces each marker with a formatted citation, builds the reference
   list, and exports **BibTeX (.bib)**, **CSL-JSON** (works with Zotero and Mendeley) and **LaTeX `\\cite`**.
 """),
@@ -61,7 +70,8 @@ SECTIONS = [
     ("Uploads and reports", ":material/upload_file:", """
 - Upload **.docx, .pdf, .tex, .md or .txt**. PDF text is read with **pypdf**; a scanned PDF (a picture of pages)
   has no text to read.
-- Download the Writing Checker report as **PDF** (made with **fpdf2**), **Word** (python-docx) or **Markdown**.
+- Download the Writing Checker report as **PDF** (made with **fpdf2**, using the free DejaVu Sans font so
+  accented letters, Greek and Cyrillic print correctly), **Word** (python-docx) or **Markdown**.
 """),
 ]
 

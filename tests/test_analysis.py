@@ -97,6 +97,15 @@ def test_consistent_spelling_is_not_flagged():
         assert r.uk_spelling == [] and r.us_spelling == [], text
 
 
+def test_sentence_lengths_and_variety():
+    same = analyze(" ".join(["The cat sat on the warm mat today."] * 6))
+    assert same.sentence_lengths == [8] * 6 and same.monotonous
+    mixed = analyze("Stop. The cat sat on the mat. Then, after a very long and tiring day of chasing birds around "
+                    "the garden, it finally fell asleep. Good. It dreamt of fish and mice all night.")
+    assert not mixed.monotonous
+    assert not analyze("Same length here. Same length here.").monotonous  # too few sentences to judge
+
+
 def test_duration():
     assert duration(0, 238) == "under 1 min"
     assert duration(100, 238) == "under 1 min"

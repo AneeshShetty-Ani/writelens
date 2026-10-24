@@ -23,6 +23,17 @@ def test_in_text_styles():
     assert insert_citations(text, REFS, "APA").text == "A (Smith, 2020). B (Lee & Park, 2019; Ng et al., 2021)."
     assert insert_citations(text, REFS, "Harvard").text == "A (Smith 2020). B (Lee and Park 2019; Ng et al. 2021)."
     assert insert_citations(text, REFS, "MLA").text == "A (Smith). B (Lee and Park; Ng et al.)."
+    assert insert_citations(text, REFS, "Chicago").text == "A (Smith 2020). B (Lee and Park 2019; Ng et al. 2021)."
+
+
+def test_chicago_entries():
+    assert format_entry(ONE, "Chicago") == (
+        "Smith, Jane. 2020. “Sleep and memory.” *Nature* 5 (2): 10-20. https://doi.org/10.1000/xyz."
+    )
+    assert format_entry(TWO, "Chicago") == "Lee, Anna, and Min Park. 2019. *Writing Well*. Penguin."
+    assert format_entry(MANY, "Chicago") == "Ng, A, C Bo, and D Wu. 2021. “A web page.” Example. https://example.com."
+    nobody = Reference(key="k", kind="web", title="Style guide", url="https://x.org")
+    assert format_entry(nobody, "Chicago") == "“Style guide.” n.d. https://x.org."
 
 
 def test_ieee_numbers_follow_first_use():

@@ -24,7 +24,19 @@ def test_drops_filler_words():
 
 
 def test_keeps_fillers_that_carry_meaning():
-    text = "Thank you very much. I am not really sure. It isn't very big."
+    text = "Thank you very much. I am not really sure."
+    assert apply_fixes(text).text == text
+
+
+def test_expands_safe_contractions_only():
+    r = apply_fixes("Don't panic. It isn't very big, I'm sure we can't lose. They’re here. Let's go.")
+    assert r.text == "Do not panic. It is not very big, I am sure we cannot lose. They are here. Let us go."
+    assert ("don't", "do not", 1) in r.changes and ("they're", "they are", 1) in r.changes
+
+
+def test_leaves_ambiguous_contractions():
+    # it's = it is / it has, he'd = he would / he had, ain't = am / is / are not
+    text = "It's late and he'd left, but it ain't over."
     assert apply_fixes(text).text == text
 
 

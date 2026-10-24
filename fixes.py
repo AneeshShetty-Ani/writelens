@@ -4,6 +4,8 @@ Anything that needs judgement (passive voice, long sentences) is left to the wri
 import re
 from dataclasses import dataclass, field
 
+from analysis import CONTRACTION, expand_contraction
+
 # wordy phrase -> replacement ("" deletes it). Only phrases whose replacement reads correctly in
 # nearly any sentence; "in terms of" or "the fact that" need a human to reword the sentence.
 REPLACEMENTS = {
@@ -28,6 +30,9 @@ REPLACEMENTS = {
     "with regard to": "about",
     "is able to": "can",
 }
+# Contractions with more than one long form ("he'd" = he would / he had, "it's" = it is / it has)
+# have a "/" in expand_contraction() and are left alone; so is "ain't" (am not / is not / are not).
+AMBIGUOUS_CONTRACTIONS = {"ain't"}
 FILLERS = ("really", "very", "basically", "actually", "literally", "totally")
 # "very much", "not really": dropping the filler here changes the meaning or the grammar
 KEEP_BEFORE = {"much", "many", "few", "little", "well"}
@@ -64,6 +69,19 @@ def apply_fixes(text: str) -> FixResult:
         result.text = re.sub(pattern, swap, result.text, flags=re.IGNORECASE)
         if count:
             result.changes.append((phrase, replacement, count))
+
+    contraction_counts: dict[str, tuple[str, int]] = {}
+
+    def expand(m: re.Match) -> str:
+        word = m.group().lower().replace("’", "'")
+        full = expand_contraction(word)
+        if "/" in full or word in AMBIGUOUS_CONTRACTIONS:
+            return m.group()
+        contraction_counts[word] = (full, contraction_counts.get(word, ("", 0))[1] + 1)
+        return full[0].upper() + full[1:] if m.group()[0].isupper() else full
+
+    result.text = CONTRACTION.sub(expand, result.text)
+    result.changes += [(w, full, n) for w, (full, n) in contraction_counts.items()]
 
     filler_counts: dict[str, int] = {}
 
