@@ -3,12 +3,18 @@
 import html
 import re
 
-from analysis import LONG_SENTENCE_WORDS, WORD, WORDY_PHRASES, split_sentences
+from analysis import (
+    CLICHE_PATTERN, CONTRACTION, LONG_SENTENCE_WORDS, UK_SPELLING, US_SPELLING, WORD, WORDY_PHRASES,
+    split_sentences,
+)
 from nlp_checks import is_filler_adverb, is_passive, load_nlp
 
 # category -> label shown in the legend and tooltips
 LABELS = {
     "wordy": "Wordy phrase",
+    "cliche": "Cliché",
+    "contraction": "Contraction",
+    "spelling": "Mixed UK/US spelling",
     "adverb": "Filler adverb",
     "passive": "Passive voice",
     "long": f"Long sentence (over {LONG_SENTENCE_WORDS} words)",
@@ -30,6 +36,13 @@ def find_spans(text: str) -> list[Span]:
         for m in re.finditer(pattern, remaining, re.IGNORECASE):
             spans.append((m.start(), m.end(), "wordy"))
         remaining = re.sub(pattern, lambda m: " " * len(m.group()), remaining, flags=re.IGNORECASE)
+
+    spans.extend((m.start(), m.end(), "cliche") for m in CLICHE_PATTERN.finditer(text))
+    spans.extend((m.start(), m.end(), "contraction") for m in CONTRACTION.finditer(text))
+    # with mixed spelling, mark the less-used form: those are the words to change
+    uk, us = list(UK_SPELLING.finditer(text)), list(US_SPELLING.finditer(text))
+    if uk and us:
+        spans.extend((m.start(), m.end(), "spelling") for m in (us if len(us) < len(uk) else uk))
 
     pos = 0
     for sentence in split_sentences(text):
