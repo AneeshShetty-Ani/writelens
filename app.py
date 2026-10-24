@@ -22,6 +22,8 @@ PERSISTENT_KEYS = (
     "cite_style", "cite_text", "doc_a", "doc_b",
 )
 VERSION_HISTORY = [
+    ("1.4.0", "PDF upload, report download as PDF and Word, cliché / contraction / mixed UK-US spelling checks, "
+              "reading and speaking time, stay signed in after a refresh"),
     ("1.3.0", "Writing score and grade level, one-click sample text, How it works page, new sign-in screen"),
     ("1.2.0", "Frosted Obsidian theme, top navigation instead of a sidebar, single-column layout with issues in a grid below the text"),
     ("1.1.0", "Nordic Indigo theme with glowing-outline cards, colour-coded issue cards, 60/40 workspace layout, difflib sequence score"),
@@ -33,10 +35,11 @@ VERSION_HISTORY = [
     ("0.1", "Readability stats, wordy phrases, long sentences"),
 ]
 WHATS_NEW = [
-    ("Writing Checker", "issues highlighted in place: wordy phrases, filler adverbs, passive voice, long sentences"),
-    ("Plagiarism Checker", "similarity % with copied phrases highlighted; or check a draft against many sources"),
-    ("Citations","DOI lookup, IEEE / APA / MLA / Harvard, BibTeX, JSON and LaTeX export"),
-    ("Similarity", "n-gram overlap, winnowing fingerprints and matching-passage highlights"),
+    ("PDF upload", "check, compare or cite a .pdf, on every page"),
+    ("Reports", "download the Writing Checker report as PDF or Word, not just Markdown"),
+    ("New checks", "clichés, contractions and mixed UK/US spelling, highlighted in the text"),
+    ("Reading time", "reading and speaking time next to the word count"),
+    ("Stay signed in", "refreshing the page no longer signs you out"),
 ]
 
 st.set_page_config(page_title="WriteLens", page_icon="🔍", layout="wide", initial_sidebar_state="collapsed")
