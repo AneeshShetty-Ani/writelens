@@ -302,3 +302,64 @@ def test_sign_out():
     at.button(key="logout").click().run()
     assert "user" not in at.session_state
     assert len(at.tabs) == 0
+
+
+# ---- staying signed in after a refresh ---------------------------------------
+
+def test_session_token_round_trip_and_tampering():
+    token = auth.make_session_token("Alice", CFG)
+    assert auth.read_session_token(token, CFG) == "Alice"
+    name, expires, sig = token.split(".")
+    for bad in (f"Mallory.{expires}.{sig}", f"{name}.{int(expires) + 999}.{sig}", f"{name}.{expires}.x{sig[1:]}",
+                f"{name}.{expires}.é", "garbage", "", None, "a.b.c.d"):
+        assert auth.read_session_token(bad, CFG) is None, bad
+    # a token made with another secret (e.g. after the secret is changed) is refused
+    assert auth.read_session_token(token, {**CFG, "client_secret": "other"}) is None
+
+
+def test_session_token_expires(monkeypatch):
+    token = auth.make_session_token("Alice", CFG)
+    real_time = auth.time.time
+    monkeypatch.setattr(auth.time, "time", lambda: real_time() + auth.SESSION_TTL_SECONDS + 1)
+    assert auth.read_session_token(token, CFG) is None
+
+
+def test_signed_in_user_gets_session_in_address_bar(monkeypatch):
+    monkeypatch.setattr(auth, "exchange_code", lambda cfg, code: "tok")
+    monkeypatch.setattr(auth, "fetch_username", lambda token: "Alice")
+    at = make_app({"code": "c", "state": auth.new_state()}).run()
+    assert "code" not in at.query_params
+    assert auth.read_session_token(at.query_params["session"], CFG) == "Alice"
+
+
+def test_refresh_restores_user_from_session():
+    # a refresh is a new Streamlit session: empty session state, same address
+    at = make_app({"session": auth.make_session_token("Alice", CFG)}).run()
+    assert not at.exception
+    assert at.session_state["user"] == "Alice"
+    assert len(at.tabs) == 2
+
+
+def test_forged_or_stale_session_is_dropped():
+    forged = auth.make_session_token("mallory", {**CFG, "client_secret": "guess"})
+    at = make_app({"session": forged}).run()
+    assert "user" not in at.session_state and "session" not in at.query_params
+    # signed correctly, but no longer on the allow-list
+    at = make_app({"session": auth.make_session_token("mallory", CFG)}).run()
+    assert "user" not in at.session_state and "session" not in at.query_params
+
+
+def test_gated_session_skips_the_star_check_on_refresh(monkeypatch):
+    def fail(*a, **k):
+        raise AssertionError("a restored session doesn't call GitHub")
+
+    monkeypatch.setattr(auth.requests, "get", fail)
+    at = gated_app({"session": auth.make_session_token("stranger", GATE)}).run()
+    assert at.session_state["user"] == "stranger"
+
+
+def test_logout_removes_session_from_address_bar():
+    at = make_app({"session": auth.make_session_token("Alice", CFG)}).run()
+    at.button(key="logout").click().run()
+    assert "user" not in at.session_state and "session" not in at.query_params
+    assert "Sign in with GitHub" in link_buttons(at)
