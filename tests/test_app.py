@@ -73,6 +73,17 @@ def test_app_shows_new_checks_times_and_downloads():
     assert {"PDF (.pdf)", "Word (.docx)", "Markdown (.md)"} <= set(labels)
 
 
+def test_app_shows_spelling_tone_and_starts():
+    at = run_with("You recieve it. You are gonna win. You know it.")
+    assert not at.exception
+    page = markdown_html(at)
+    assert "<b>Spelling</b>" in page and "<i>recieve</i> → <b>receive</b>" in page
+    assert 'class="uf-typo"' in page and 'class="uf-informal"' in page and "uf-starts" in page
+    assert "<b>Informal words</b>" in page and "<b>Talking to the reader</b>" in page
+    assert "<b>Repeated sentence starts</b>" in page
+    assert any("Still to fix yourself: 1 spelling mistake(s)" in c.value for c in at.caption)
+
+
 def test_second_draft_shows_score_change():
     at = run_with("We don't think outside the box. Due to the fact that it rained, we stayed in order to rest.")
     assert 'class="uf-drafts"' not in markdown_html(at)  # nothing to compare the first draft with

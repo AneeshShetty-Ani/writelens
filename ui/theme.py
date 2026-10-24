@@ -6,7 +6,7 @@ import streamlit as st
 
 from analysis import READ_WPM, SPEAK_WPM, duration
 
-VERSION = "1.4.0"
+VERSION = "1.5.0"
 
 CSS = """
 <style>
@@ -132,6 +132,9 @@ html, body, .stApp, .stMarkdown, button, textarea, input, label, h1, h2, h3, h4,
 .uf-cliche { background: rgba(167, 139, 250, .22); color: #DDD6FE; border-radius: 3px; }
 .uf-contraction { text-decoration: underline dashed #67E8F9; text-underline-offset: 4px; }
 .uf-spelling { text-decoration: underline wavy #F59E0B; text-underline-offset: 4px; }
+.uf-typo { text-decoration: underline wavy #F87171; text-underline-offset: 4px; text-decoration-thickness: 2px; }
+.uf-informal { background: rgba(245, 158, 11, .14); color: #FCD34D; border-radius: 3px; }
+.uf-starts { border-bottom: 2px solid #A78BFA; }
 .uf-long { border-bottom: 2px dotted #67E8F9; }
 .uf-legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: .82rem; margin: .2rem 0 .8rem; }
 .uf-legend span { padding: 1px 6px; }

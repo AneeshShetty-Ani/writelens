@@ -32,6 +32,10 @@ def test_issues_lower_the_score():
 def test_new_checks_lower_the_score():
     clean = Report(words=100, sentences=5, reading_ease=65)
     for messy in (Report(words=100, sentences=5, reading_ease=65, cliches=[("a piece of cake", 2)]),
+                  Report(words=100, sentences=5, reading_ease=65, misspellings=[("teh", "the", 1)]),
+                  Report(words=100, sentences=5, reading_ease=65, informal=[("gonna", "going to", 1)]),
+                  Report(words=100, sentences=5, reading_ease=65, second_person=4),
+                  Report(words=100, sentences=5, reading_ease=65, repeated_starts=[("the", 0, 3)]),
                   Report(words=100, sentences=5, reading_ease=65, contractions=[("don't", 3)]),
                   Report(words=100, sentences=5, reading_ease=65, uk_spelling=[("colour", 3)], us_spelling=[("color", 1)])):
         assert writing_score(messy, NlpReport()) < writing_score(clean, NlpReport())

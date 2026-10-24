@@ -40,6 +40,14 @@ def test_report_has_new_checks_and_times():
     assert "### Mixed UK/US spelling" in md and "UK: analysed ×1" in md
 
 
+def test_report_has_spelling_tone_and_starts():
+    md = build_markdown(analyze("You recieve it. You gonna win. You know it."), NlpReport())
+    assert "### Spelling" in md and "- recieve → receive" in md
+    assert "### Informal words" in md and "“gonna” ×1 → going to" in md
+    assert "### Talking to the reader" in md and "×3" in md
+    assert "### Repeated sentence starts" in md and "3 sentences in a row begin with “You”" in md
+
+
 def test_docx_report():
     data = build_docx(analyze(MESSY), NlpReport(), "essay.pdf")
     document = docx.Document(io.BytesIO(data))

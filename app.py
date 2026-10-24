@@ -22,6 +22,8 @@ PERSISTENT_KEYS = (
     "cite_style", "cite_text", "doc_a", "doc_b",
 )
 VERSION_HISTORY = [
+    ("1.5.0", "spelling mistakes, informal words and talking to the reader, repeated sentence starts, "
+              "automatic tests on GitHub"),
     ("1.4.0", "PDF upload, report download as PDF and Word, cliché / contraction / mixed UK-US spelling checks, "
               "reading and speaking time, stay signed in after a refresh, score change between drafts, word limit, "
               "sentence-length chart, Chicago citations, contractions expanded in Improved Text"),
@@ -36,14 +38,10 @@ VERSION_HISTORY = [
     ("0.1", "Readability stats, wordy phrases, long sentences"),
 ]
 WHATS_NEW = [
-    ("Draft tracking", "re-analyse after editing to see your score change and which issues you fixed"),
-    ("Word limit", "set your assignment's limit and watch the progress bar"),
-    ("New checks", "clichés, contractions, mixed UK/US spelling and sentence variety, with a sentence-length chart"),
-    ("PDF upload", "check, compare or cite a .pdf, on every page"),
-    ("Reports", "download the Writing Checker report as PDF or Word, not just Markdown"),
-    ("Chicago style", "a fifth citation format, next to IEEE, APA, MLA and Harvard"),
-    ("Reading time", "reading and speaking time next to the word count"),
-    ("Stay signed in", "refreshing the page no longer signs you out"),
+    ("Spelling", "probable typos underlined, with the fix (recieve → receive)"),
+    ("Formal tone", "casual words (gonna, stuff, a lot of) with formal choices, and essays that keep saying “you”"),
+    ("Sentence starts", "spots three or more sentences in a row that begin with the same word"),
+    ("Always tested", "every update runs all the tests automatically on GitHub"),
 ]
 
 st.set_page_config(page_title="WriteLens", page_icon="🔍", layout="wide", initial_sidebar_state="collapsed")

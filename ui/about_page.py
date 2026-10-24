@@ -1,6 +1,9 @@
 import streamlit as st
 
-from analysis import LONG_SENTENCE_WORDS, READ_WPM, SPEAK_WPM, VARIETY_MIN_SENTENCES, VARIETY_MIN_SPREAD
+from analysis import (
+    LONG_SENTENCE_WORDS, READ_WPM, REPEATED_START_RUN, SECOND_PERSON_MIN, SPEAK_WPM, SPELLING_TERM_MIN,
+    VARIETY_MIN_SENTENCES, VARIETY_MIN_SPREAD,
+)
 from score import WEIGHTS
 from similarity import MATCH_WORDS, NGRAM
 
@@ -15,6 +18,13 @@ SECTIONS = [
   (*think outside the box*). Contractions (*don't*, *it's*) are shown with their long form, since essays usually
   avoid them. Spelling looks for word patterns like *-ise/-ize*, *-our/-or* and *-re/-er*; if both kinds appear,
   the less-used one is marked so the text can be made consistent.
+- **Spelling**: words are checked against an English word list with **pyspellchecker**, which works offline.
+  To avoid false alarms it only checks all-lowercase words (so names and places are skipped), ignores links,
+  accepts UK spellings, skips words used {SPELLING_TERM_MIN}+ times (usually your technical terms), and only
+  reports a word when it finds a close correction, as typos nearly always have one.
+- **Formal tone**: a list of casual words with formal choices (*gonna → going to*, *a lot of → many*), and a
+  note when "you" / "your" appears {SECOND_PERSON_MIN}+ times, since essays rarely address the reader.
+- **Repeated sentence starts**: {REPEATED_START_RUN}+ sentences in a row beginning with the same word.
 - **Reading and speaking time**: words ÷ {READ_WPM} (average silent reading speed) and ÷ {SPEAK_WPM} (a
   comfortable pace for a talk).
 - **Sentence variety**: the chart shows the words in each sentence. With {VARIETY_MIN_SENTENCES}+ sentences, if
@@ -82,4 +92,5 @@ def render() -> None:
     for title, icon, body in SECTIONS:
         with st.expander(f"{icon} **{title}**", expanded=title == "Writing Checker"):
             st.markdown(body)
-    st.caption("Built with Python, Streamlit, spaCy, difflib, requests (Crossref API), python-docx, pypdf and fpdf2.")
+    st.caption("Built with Python, Streamlit, spaCy, pyspellchecker, difflib, requests (Crossref API), python-docx, "
+               "pypdf and fpdf2. Every update is tested automatically on GitHub Actions.")

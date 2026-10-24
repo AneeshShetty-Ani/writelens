@@ -2,6 +2,7 @@
 
 import re
 from dataclasses import dataclass, field
+from functools import lru_cache
 
 # Split after . ! ? followed by whitespace, or at line breaks (headings, list items).
 SENTENCE_SPLIT = re.compile(r"(?<=[.!?])\s+|\n+")
@@ -86,6 +87,89 @@ SPELLING = [
     (rf"(?:{'|'.join(_LL_STEMS)})l(?:ed|ing|er|ers)", rf"(?:{'|'.join(_LL_STEMS)})(?:ed|ing|er|ers)"),
     (r"grey(?:s|er|est|ish)?|catalogue(?:s|d)?", r"gray(?:s|er|est|ish)?|catalog(?:s|ed)?"),
 ]
+# Casual words and phrases -> a more formal choice, for essays and reports.
+INFORMAL = {
+    "gonna": "going to", "wanna": "want to", "gotta": "have to", "kinda": "somewhat", "sorta": "somewhat",
+    "a lot of": "many / much", "lots of": "many / much", "tons of": "many / much", "loads of": "many / much",
+    "stuff": "a specific word (material, items...)", "kids": "children", "guys": "people",
+    "awesome": "excellent", "okay": "acceptable", "ok": "acceptable", "anyways": "anyway",
+    "pretty much": "almost", "get rid of": "remove", "figure out": "determine", "come up with": "develop / propose",
+    "big deal": "significant", "nowadays": "today / currently", "freaking": "(cut it)",
+}
+INFORMAL_PATTERN = re.compile(
+    r"\b(?:" + "|".join(re.escape(p) for p in sorted(INFORMAL, key=len, reverse=True)) + r")\b", re.IGNORECASE)
+SECOND_PERSON = re.compile(r"\byou(?:r|rs|rself|rselves)?\b", re.IGNORECASE)
+SECOND_PERSON_MIN = 3  # one "you" in a quote is fine; several means the essay is talking to the reader
+
+# Sentence starts: this many sentences in a row beginning with the same word reads repetitively.
+REPEATED_START_RUN = 3
+
+# Spelling: only all-lowercase words are checked, so names, places and acronyms are never flagged.
+# A word used this often is probably a technical term the dictionary doesn't know.
+SPELLING_TERM_MIN = 3
+SPELLING_MAX = 50  # distinct misspellings to suggest fixes for, so a huge document stays fast
+CHECKABLE_WORD = re.compile(r"(?<![\w'’-])[a-z]+(?![\w'’-])")
+LINK = re.compile(r"\S+@\S+|https?://\S+|www\.\S+")
+# Correct words the dictionary doesn't know: newer words, and UK spellings the UK/US patterns don't cover.
+KNOWN_WORDS = {
+    "dataset", "datasets", "covid", "email", "emails", "online", "offline", "app", "apps", "smartphone", "smartphones",
+    "website", "websites", "blog", "blogs", "wifi", "login", "username", "chatbot", "chatbots", "cybersecurity",
+    "programme", "programmes", "cheque", "cheques", "tyre", "tyres", "aluminium", "mould", "practise", "practised",
+    "licence", "licences", "ageing", "jewellery", "enrol", "enrolment", "fulfil", "fulfilment", "judgement",
+    "towards", "whilst", "amongst", "learnt", "spelt", "dreamt", "burnt", "favour", "favours", "colours", "metres",
+    "kilometres", "manoeuvre", "paediatric", "anaemia", "oestrogen", "sceptical", "storey", "draught", "plough",
+}
+
+
+@lru_cache(maxsize=1)
+def spellchecker():
+    from spellchecker import SpellChecker
+
+    return SpellChecker()
+
+
+def find_misspellings(text: str) -> list[tuple[str, str, int]]:
+    """(word, suggested fix, count) for each probable misspelling, most frequent first."""
+    text = LINK.sub(" ", text)
+    counts: dict[str, int] = {}
+    for m in CHECKABLE_WORD.finditer(text):
+        counts[m.group()] = counts.get(m.group(), 0) + 1
+    candidates = [w for w, n in counts.items() if n < SPELLING_TERM_MIN and w not in KNOWN_WORDS
+                  and not UK_SPELLING.fullmatch(w) and not US_SPELLING.fullmatch(w)]
+    checker = spellchecker()
+    unknown = [w for w in checker.unknown(candidates) if not checker.known(us_forms(w))]
+    found = []
+    for word in sorted(unknown, key=lambda w: (-counts[w], w))[:SPELLING_MAX]:
+        fix = checker.correction(word)
+        # a typo nearly always has a close correction; a word without one is usually a technical term
+        if fix and fix != word:
+            found.append((word, fix, counts[word]))
+    return found
+
+
+# UK spelling -> US spelling, for words the UK/US patterns don't list ("organisers", "urbanisation")
+UK_TO_US = [("is", "iz"), ("our", "or"), ("tre", "ter"), ("yse", "yze"), ("ll", "l"), ("ogue", "og"), ("ence", "ense")]
+
+
+def us_forms(word: str) -> list[str]:
+    return [word.replace(uk, us) for uk, us in UK_TO_US if uk in word]
+
+
+def repeated_start_runs(sentences: list[str]) -> list[tuple[str, int, int]]:
+    """(first word, index of the first sentence, number of sentences) for each run of
+    REPEATED_START_RUN+ sentences in a row that begin with the same word."""
+    firsts = [(WORD.findall(s) or [""])[0].lower() for s in sentences]
+    runs, i = [], 0
+    while i < len(firsts):
+        j = i
+        while j + 1 < len(firsts) and firsts[j + 1] == firsts[i]:
+            j += 1
+        if firsts[i] and j - i + 1 >= REPEATED_START_RUN:
+            runs.append((firsts[i], i, j - i + 1))
+        i = j + 1
+    return runs
+
+
 CLICHE_PATTERN = re.compile(r"\b(?:" + "|".join(re.escape(c) for c in CLICHES) + r")\b", re.IGNORECASE)
 UK_SPELLING = re.compile(r"\b(?:" + "|".join(uk for uk, _ in SPELLING) + r")\b", re.IGNORECASE)
 US_SPELLING = re.compile(r"\b(?:" + "|".join(us for _, us in SPELLING) + r")\b", re.IGNORECASE)
@@ -103,6 +187,10 @@ class Report:
     wordy: list[tuple[str, str, int]] = field(default_factory=list)
     cliches: list[tuple[str, int]] = field(default_factory=list)
     contractions: list[tuple[str, int]] = field(default_factory=list)
+    misspellings: list[tuple[str, str, int]] = field(default_factory=list)  # (word, fix, count)
+    informal: list[tuple[str, str, int]] = field(default_factory=list)  # (phrase, formal choice, count)
+    second_person: int = 0  # uses of "you" / "your", when there are SECOND_PERSON_MIN or more
+    repeated_starts: list[tuple[str, int, int]] = field(default_factory=list)  # see repeated_start_runs()
     # filled only when the text mixes the two: the UK-spelled and US-spelled words, with counts
     uk_spelling: list[tuple[str, int]] = field(default_factory=list)
     us_spelling: list[tuple[str, int]] = field(default_factory=list)
@@ -214,6 +302,11 @@ def analyze(text: str) -> Report:
 
     report.cliches = count_matches(CLICHE_PATTERN, text)
     report.contractions = count_matches(CONTRACTION, text)
+    report.misspellings = find_misspellings(text)
+    report.informal = [(p, INFORMAL[p], n) for p, n in count_matches(INFORMAL_PATTERN, text)]
+    you = len(SECOND_PERSON.findall(text))
+    report.second_person = you if you >= SECOND_PERSON_MIN else 0
+    report.repeated_starts = repeated_start_runs(sentences)
     uk, us = count_matches(UK_SPELLING, text), count_matches(US_SPELLING, text)
     if uk and us:
         report.uk_spelling, report.us_spelling = uk, us

@@ -33,6 +33,7 @@ def stats_rows(report: Report, nlp: NlpReport) -> list[tuple[str, str]]:
 def sections(report: Report, nlp: NlpReport) -> list[tuple[str, list[str]]]:
     """(title, bullet points) for each kind of issue that was found."""
     found = [
+        ("Spelling", [f"{w} → {fix}" + (f" ×{n}" if n > 1 else "") for w, fix, n in report.misspellings]),
         ("Wordy phrases", [f"“{p}” ×{n} → consider {s}" for p, s, n in report.wordy]),
         ("Clichés", [f"“{c}” ×{n} → say it in your own words" for c, n in report.cliches]),
         (f"Long sentences (over {LONG_SENTENCE_WORDS} words)", list(report.long_sentences)),
@@ -41,6 +42,11 @@ def sections(report: Report, nlp: NlpReport) -> list[tuple[str, list[str]]]:
         ("Weak verbs", [f"{w} ×{n}" for w, n in nlp.weak_verbs]),
         ("Filler adverbs", [f"{w} ×{n}" for w, n in nlp.adverbs]),
         ("Contractions (avoid in formal writing)", [f"{w} ×{n} → {expand_contraction(w)}" for w, n in report.contractions]),
+        ("Informal words", [f"“{p}” ×{n} → {s}" for p, s, n in report.informal]),
+        ("Talking to the reader",
+         [f"“you” / “your” ×{report.second_person} → try “people”, “students” or “one”"] if report.second_person else []),
+        ("Repeated sentence starts",
+         [f"{n} sentences in a row begin with “{w.capitalize()}”" for w, _, n in report.repeated_starts]),
     ]
     if report.uk_spelling:
         found.append(("Mixed UK/US spelling", [

@@ -121,9 +121,9 @@ def render_sentence_chart(text: str, lengths: list[int]) -> None:
     st.altair_chart((bars + line + label).properties(height=220), use_container_width=True)
 
 
-def render_highlighted(text: str, box) -> None:
-    spans = find_spans(text)
-    kinds = ("wordy", "cliche", "adverb", "contraction", "spelling", "passive", "long")
+def render_highlighted(text: str, report, box) -> None:
+    spans = find_spans(text, report)
+    kinds = ("typo", "wordy", "cliche", "informal", "adverb", "contraction", "spelling", "starts", "passive", "long")
     present = [c for c in kinds if any(s[2] == c for s in spans)]
     with box:
         if present:
@@ -139,13 +139,31 @@ def render_issues(report, nlp) -> None:
     """Each finding as a card saying what to do: gold for grammar, blue for style."""
     found_nlp = nlp.passive or nlp.repeated or nlp.weak_verbs or nlp.adverbs
     found = (report.long_sentences or report.wordy or report.cliches or report.contractions or report.uk_spelling
-             or report.monotonous)
+             or report.monotonous or report.misspellings or report.informal or report.second_person
+             or report.repeated_starts)
     if not found and not found_nlp:
         st.success("No issues found. Nice and clear!")
     if not nlp.available:
         st.warning("Grammar checks unavailable: run `python -m spacy download en_core_web_sm`.")
 
-    cards = [card_html("grammar", "Passive voice", "say who does the action", s) for s in nlp.passive]
+    cards = []
+    if report.misspellings:
+        fixes = ", ".join(f"<i>{html.escape(w)}</i> → <b>{html.escape(fix)}</b>" + (f" ×{n}" if n > 1 else "")
+                          for w, fix, n in report.misspellings)
+        cards.append(card_html("grammar", "Spelling", f"probable mistakes: {fixes}"))
+    cards += [card_html("grammar", "Passive voice", "say who does the action", s) for s in nlp.passive]
+    if report.informal:
+        swaps = ", ".join(f"<i>{html.escape(p)}</i> → {html.escape(s)}" + (f" ×{n}" if n > 1 else "")
+                          for p, s, n in report.informal)
+        cards.append(card_html("style", "Informal words", f"for essays and reports: {swaps}"))
+    if report.second_person:
+        cards.append(card_html("style", "Talking to the reader",
+                               f"“you” / “your” ×{report.second_person}. Formal writing usually avoids addressing "
+                               "the reader: try “people”, “students”, “one” or the passive"))
+    for word, _, length in report.repeated_starts:
+        cards.append(card_html("style", "Repeated sentence starts",
+                               f"{length} sentences in a row begin with “{html.escape(word.capitalize())}”. "
+                               "Vary how they open"))
     for phrase, suggestion, hits in report.wordy:
         cards.append(card_html("style", "Wordy phrase", f"“{phrase}” ×{hits}: replace with <b>{suggestion}</b>"))
     for phrase, hits in report.cliches:
@@ -180,10 +198,11 @@ def render_improved(text: str, report, nlp) -> None:
         note = f"Easy fixes applied: {done}."
     else:
         note = "No automatic fixes were needed."
-    todo = [f"{len(nlp.passive)} passive sentence(s)" if nlp.passive else "",
+    todo = [f"{len(report.misspellings)} spelling mistake(s)" if report.misspellings else "",
+            f"{len(nlp.passive)} passive sentence(s)" if nlp.passive else "",
             f"{len(report.long_sentences)} long sentence(s)" if report.long_sentences else ""]
     if todo := [t for t in todo if t]:
-        note += f" Still to fix yourself: {' and '.join(todo)} (see the cards above)."
+        note += f" Still to fix yourself: {', '.join(todo)} (see the cards above)."
     final_output("checker", "Improved Text", fixed.text, note, "improved-text.txt")
 
 
@@ -210,7 +229,7 @@ def render_report(text: str, source: str, highlight_box=None) -> None:
         st.markdown(draft_change_html(prev, score, counts), unsafe_allow_html=True)
 
     box = highlight_box if highlight_box is not None else st.container()
-    render_highlighted(text, box)
+    render_highlighted(text, report, box)
     with box:
         render_issues(report, nlp)
 

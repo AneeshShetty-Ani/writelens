@@ -1,4 +1,6 @@
-from analysis import analyze, count_syllables, duration, expand_contraction, split_sentences
+from analysis import (
+    analyze, count_syllables, duration, expand_contraction, find_misspellings, repeated_start_runs, split_sentences,
+)
 
 
 def test_empty_text():
@@ -104,6 +106,33 @@ def test_sentence_lengths_and_variety():
                     "the garden, it finally fell asleep. Good. It dreamt of fish and mice all night.")
     assert not mixed.monotonous
     assert not analyze("Same length here. Same length here.").monotonous  # too few sentences to judge
+
+
+def test_misspellings_found_with_fixes():
+    found = find_misspellings("I recieve teh results and definately agree.")
+    assert found == [("definately", "definitely", 1), ("recieve", "receive", 1), ("teh", "the", 1)]
+
+
+def test_spelling_skips_names_links_uk_and_terms():
+    text = ("Aneesh and Priyanka visited Bengaluru. See https://exampel.com/pagee or mail me@exampel.com. "
+            "We organised the urbanisation programme and analysed the colour data. "
+            "The hyperparameters were tuned. The zorbix model beat the zorbix baseline; zorbix wins.")
+    assert find_misspellings(text) == []
+
+
+def test_informal_words_and_second_person():
+    r = analyze("You should know that you can do it. Your work is gonna be awesome, with a lot of stuff.")
+    assert r.informal == [("a lot of", "many / much", 1), ("awesome", "excellent", 1), ("gonna", "going to", 1),
+                          ("stuff", "a specific word (material, items...)", 1)]
+    assert r.second_person == 3
+    assert analyze("As you know, the results were clear.").second_person == 0  # once is fine
+
+
+def test_repeated_sentence_starts():
+    sentences = ["The cat ran.", "The dog sat.", "The bird sang.", "A fish swam.", "It was.", "It is.", "It ends."]
+    assert repeated_start_runs(sentences) == [("the", 0, 3), ("it", 4, 3)]
+    assert repeated_start_runs(["The a.", "The b.", "A c.", "The d."]) == []
+    assert analyze("The cat ran. The dog sat. The bird sang.").repeated_starts == [("the", 0, 3)]
 
 
 def test_duration():

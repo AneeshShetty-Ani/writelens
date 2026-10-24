@@ -1,5 +1,7 @@
 # WriteLens
 
+[![Tests](https://github.com/AneeshShetty-Ani/writelens/actions/workflows/tests.yml/badge.svg)](https://github.com/AneeshShetty-Ani/writelens/actions/workflows/tests.yml)
+
 **Live app: [writelens.streamlit.app](https://writelens.streamlit.app)**
 
 A writing assistant built with Python and Streamlit. Paste text or upload a document, and WriteLens highlights what could be clearer, checks it against sources for copied passages, formats your citations, and compares two documents. It points things out; you decide what to change. Every check runs on the server with open-source libraries, so your text is never sent to an AI service, and nothing is saved.
@@ -7,7 +9,7 @@ A writing assistant built with Python and Streamlit. Paste text or upload a docu
 
 | Page | What it does |
 |---|---|
-| **Writing Checker** | A 0–100 writing score, reading ease, grade level, and reading / speaking time. Highlights wordy phrases, clichés, filler adverbs, contractions, mixed UK/US spelling, passive voice and long sentences in place, with a card for each saying what to do. A sentence-length chart shows variety. Re-analyse an edited draft to see the **score change and which issues you fixed**; set a **word limit** to track length. Gives an **Improved Text** with the safe fixes applied. Report download as **PDF, Word or Markdown**. |
+| **Writing Checker** | A 0–100 writing score, reading ease, grade level, and reading / speaking time. Highlights spelling mistakes, wordy phrases, clichés, informal words, filler adverbs, contractions, mixed UK/US spelling, repeated sentence starts, passive voice and long sentences in place, with a card for each saying what to do. A sentence-length chart shows variety. Re-analyse an edited draft to see the **score change and which issues you fixed**; set a **word limit** to track length. Gives an **Improved Text** with the safe fixes applied. Report download as **PDF, Word or Markdown**. |
 | **Plagiarism** | Similarity % between two texts with copied phrases highlighted, or a draft checked against many sources, with each match marked *cited* (quoted or referenced) or *not cited*. |
 | **Citations** | Look up a reference by DOI (Crossref) or website URL, or enter it by hand. Formats in IEEE, APA, MLA, Harvard or Chicago; replaces `[@key]` markers in your text; exports BibTeX, CSL-JSON and LaTeX. |
 | **Compare** | Two documents side by side: n-gram overlap, winnowing fingerprints (the method behind Stanford's MOSS) and cosine similarity, with matching passages highlighted. |
@@ -22,7 +24,7 @@ Sign-in uses **GitHub OAuth**. Only public profile information is requested. To 
 
 ## Built with
 
-Python · Streamlit · spaCy (grammar checks) · Altair (charts) · python-docx · pypdf · fpdf2 with DejaVu Sans · requests (Crossref API) · difflib · pytest
+Python · Streamlit · spaCy (grammar checks) · pyspellchecker · Altair (charts) · python-docx · pypdf · fpdf2 with DejaVu Sans · requests (Crossref API) · difflib · pytest
 
 ## Run it yourself
 
@@ -52,6 +54,8 @@ pip install pytest
 python -m pytest
 ```
 
+GitHub Actions runs the full suite on every push (see the badge at the top).
+
 ## Roadmap
 
 1. ✅ Basic app: stats, reading ease, wordy phrases, long sentences
@@ -62,3 +66,4 @@ python -m pytest
 6. ✅ Plagiarism Checker: a draft against many sources, with each match marked as cited or not cited
 7. ✅ Deployed to Streamlit Cloud, with star + follow sign-in
 8. ✅ v1.4: PDF upload, PDF/Word reports, clichés, contractions, mixed UK/US spelling, reading time, stay signed in, draft score tracking, word limit, sentence-length chart, Chicago style
+9. ✅ v1.5: spelling mistakes, formal tone, repeated sentence starts, automatic tests on GitHub Actions
