@@ -28,6 +28,39 @@ def test_docx_paragraphs_and_tables():
     assert "Cell text here." in text
 
 
+def make_pdf(lines: list[str], password: str = "") -> bytes:
+    from fpdf import FPDF
+
+    pdf = FPDF()
+    if password:
+        pdf.set_encryption(owner_password="owner", user_password=password)
+    pdf.add_page()
+    pdf.set_font("Helvetica", size=12)
+    for line in lines:
+        pdf.cell(0, 8, line, new_x="LMARGIN", new_y="NEXT")
+    return bytes(pdf.output())
+
+
+def test_pdf_text_and_rejoined_lines():
+    data = make_pdf(["The first line of a para-", "graph keeps going here.", "Second sentence."])
+    text = extract_text("essay.PDF", data)
+    assert "The first line of a paragraph keeps going here." in text
+    assert "Second sentence." in text
+
+
+def test_pdf_with_empty_password_opens_and_real_password_is_refused():
+    assert "Readable." in extract_text("a.pdf", make_pdf(["Readable."], password=""))
+    with pytest.raises(DocumentError, match="password"):
+        extract_text("locked.pdf", make_pdf(["Secret."], password="hunter2"))
+
+
+def test_pdf_invalid_and_without_text():
+    with pytest.raises(DocumentError, match="valid .pdf"):
+        extract_text("broken.pdf", b"not a pdf at all")
+    with pytest.raises(DocumentError, match="scan"):
+        extract_text("scan.pdf", make_pdf([]))
+
+
 def test_invalid_docx():
     with pytest.raises(DocumentError, match="valid .docx"):
         extract_text("broken.docx", b"not a zip file")
