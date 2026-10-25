@@ -17,6 +17,50 @@ MANY = Reference(key="ng2021", kind="web", title="A web page", authors=["Ng, A",
 REFS = [ONE, TWO, MANY]
 
 
+def test_normalize_isbn():
+    assert citations.normalize_isbn("ISBN 978-0-14-143951-8") == "9780141439518"
+    assert citations.normalize_isbn("isbn-10: 0-306-40615-2") == "0306406152"
+    assert citations.normalize_isbn("080442957X") == "080442957X"
+    with pytest.raises(CitationError, match="last digit"):
+        citations.normalize_isbn("978-0-14-143951-9")
+    with pytest.raises(CitationError, match="doesn't look like an ISBN"):
+        citations.normalize_isbn("12345")
+
+
+class FakeLibrary:
+    def __init__(self, payload):
+        self.payload = payload
+
+    def raise_for_status(self):
+        pass
+
+    def json(self):
+        return self.payload
+
+
+def test_lookup_isbn(monkeypatch):
+    book = {"title": "Pride and Prejudice", "subtitle": "A Novel", "authors": [{"name": "Jane Austen"}],
+            "publishers": [{"name": "Penguin Books"}], "publish_date": "March 2003"}
+    calls = []
+
+    def fake_get(url, **kwargs):
+        calls.append(kwargs["params"]["bibkeys"])
+        return FakeLibrary({"ISBN:9780141439518": book})
+
+    monkeypatch.setattr(citations.requests, "get", fake_get)
+    ref = citations.lookup_isbn("978-0-14-143951-8", {"austen2003"})
+    assert calls == ["ISBN:9780141439518"]
+    assert (ref.kind, ref.title, ref.authors, ref.year, ref.container, ref.key) == (
+        "book", "Pride and Prejudice: A Novel", ["Austen, Jane"], "2003", "Penguin Books", "austen2003a")
+    assert format_entry(ref, "APA") == "Austen, J. (2003). *Pride and Prejudice: A Novel*. Penguin Books."
+
+
+def test_lookup_isbn_not_found(monkeypatch):
+    monkeypatch.setattr(citations.requests, "get", lambda url, **kwargs: FakeLibrary({}))
+    with pytest.raises(CitationError, match="No book found"):
+        citations.lookup_isbn("0-306-40615-2", set())
+
+
 def test_in_text_styles():
     text = "A [@smith2020]. B [@lee2019; @ng2021]."
     assert insert_citations(text, REFS, "IEEE").text == "A [1]. B [2], [3]."

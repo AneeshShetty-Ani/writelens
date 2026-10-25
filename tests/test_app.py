@@ -124,6 +124,64 @@ def test_sentence_chart_and_variety_card():
     assert len(at.get("vega_lite_chart")) == 1
 
 
+def test_cards_explain_why_and_deeper_look_tabs():
+    at = run_with("In today's world, phones matter.\n\nThey help students learn.\n\nOverall, phones help.")
+    assert not at.exception
+    page = markdown_html(at)
+    assert "<b>Weak opening</b>" in page and 'class="uf-opening"' in page
+    assert '<details class="uf-why"><summary>Why?</summary>' in page
+    labels = [t.label for t in at.tabs]
+    assert {"Reverse outline", "Word budget", "Reader effort", "Listen"} <= set(labels)
+    assert 'class="uf-outline"' in page and 'class="uf-budget"' in page and "uf-effort-" in page
+
+
+def test_writing_mode_turns_checks_off():
+    text = "You don't know. You can't see. You won't stop."
+    at = signed_in_app().run()
+    at.selectbox(key="writing_mode").select("Casual")
+    at.text_area(key="checker_text").input(text)
+    at.button(key="analyse").click().run()
+    page = markdown_html(at)
+    assert "<b>Contractions</b>" not in page and "<b>Talking to the reader</b>" not in page
+    assert 'class="uf-contraction"' not in page
+    assert "don't" in at.code[0].value  # Improved Text keeps them too
+    at.selectbox(key="writing_mode").select("Essay")
+    at.button(key="analyse").click().run()
+    assert "<b>Contractions</b>" in markdown_html(at)
+
+
+def test_fix_pasted_text_button():
+    at = signed_in_app().run()
+    at.text_area(key="checker_text").input("Broken line\nin a para-\ngraph .").run()
+    at.button(key="fix_pasted").click().run()
+    assert at.text_area(key="checker_text").value == "Broken line in a paragraph."
+    assert "Fixed:" in at.success[0].value
+
+
+def test_assignment_page_example():
+    at = signed_in_app("assignment").run()
+    at.button(key="assign_example").click().run()
+    at.button(key="assign_check").click().run()
+    assert not at.exception
+    covered = next(m for m in at.metric if m.label == "Requirements covered")
+    assert covered.value.endswith(f"/ {covered.value.split('/ ')[1]}")
+    page = markdown_html(at)
+    assert 'class="uf-req uf-req-ok"' in page and "✓ Covered" in page and "✗ Missing" in page
+    improved = at.code[0].value
+    assert "[TO DO: add 1 more source" in improved and improved.endswith("Sleep Studies.")
+    assert any("Length: you have" in c.value for c in at.caption)
+
+
+def test_assignment_page_uses_writing_text():
+    at = signed_in_app().run()
+    at.text_area(key="checker_text").input("My essay text.").run()
+    at.button(key="nav_assignment").click().run()
+    at.button(key="assign_use").click().run()
+    assert at.text_area(key="assign_text").value == "My essay text."
+    at.button(key="assign_check").click().run()
+    assert at.warning  # no question yet
+
+
 def test_app_highlights_issues():
     at = run_with("Due to the fact that it rained, we really stayed.")
     page = markdown_html(at)
@@ -184,7 +242,7 @@ def test_text_survives_switching_pages():
 
 
 def test_every_page_renders():
-    for page in ("checker", "plagiarism", "citations", "similarity", "feedback", "about"):
+    for page in ("checker", "assignment", "plagiarism", "citations", "similarity", "feedback", "about"):
         at = signed_in_app(page).run()
         assert not at.exception, page
 

@@ -2,7 +2,7 @@ import streamlit as st
 
 from citations import (
     KINDS, STYLES, CitationError, Reference, format_entry, from_csl_json, insert_citations,
-    lookup_doi, make_key, reference_list, to_bibtex, to_csl_json,
+    lookup_doi, lookup_isbn, make_key, reference_list, to_bibtex, to_csl_json,
 )
 from documents import SUPPORTED, DocumentError, extract_text
 from ui.theme import clear_keys, counter
@@ -27,6 +27,17 @@ def add_doi() -> None:
     else:
         refs().append(ref)
         st.session_state["doi_input"] = ""
+        st.session_state["cite_msg"] = ("success", f"Added **{ref.title}** as `[@{ref.key}]`.")
+
+
+def add_isbn() -> None:
+    try:
+        ref = lookup_isbn(st.session_state.get("isbn_input", ""), keys())
+    except CitationError as exc:
+        st.session_state["cite_msg"] = ("error", str(exc))
+    else:
+        refs().append(ref)
+        st.session_state["isbn_input"] = ""
         st.session_state["cite_msg"] = ("success", f"Added **{ref.title}** as `[@{ref.key}]`.")
 
 
@@ -93,7 +104,8 @@ def render() -> None:
     style = st.selectbox("Citation Format", STYLES, key="cite_style")
 
     st.markdown("#### 1. Your references")
-    tab_url, tab_doi, tab_manual, tab_import = st.tabs(["Cite a website", "Look up DOI", "Enter manually", "Import JSON"])
+    tab_url, tab_doi, tab_isbn, tab_manual, tab_import = st.tabs(
+        ["Cite a website", "Look up DOI", "Book (ISBN)", "Enter manually", "Import JSON"])
     with tab_url:
         c1, c2 = st.columns([4, 1], vertical_alignment="bottom")
         c1.text_input("Web page address", key="url_input", placeholder="e.g. https://en.wikipedia.org/wiki/Photosynthesis")
@@ -103,6 +115,12 @@ def render() -> None:
         c1, c2 = st.columns([4, 1], vertical_alignment="bottom")
         c1.text_input("DOI", key="doi_input", placeholder="e.g. 10.1038/nature14539 or https://doi.org/...")
         c2.button("Look up", key="doi_lookup", on_click=add_doi, icon=":material/search:", width="stretch")
+    with tab_isbn:
+        c1, c2 = st.columns([4, 1], vertical_alignment="bottom")
+        c1.text_input("ISBN", key="isbn_input", placeholder="e.g. 978-0-14-143951-8 (on the back cover or copyright page)")
+        c2.button("Look up", key="isbn_lookup", on_click=add_isbn, icon=":material/menu_book:", width="stretch")
+        st.caption("Finds the title, authors, publisher and year in Open Library, a free catalogue of books. "
+                   "Check them against your copy, since editions differ.")
     with tab_manual:
         manual_form()
     with tab_import:

@@ -5,14 +5,19 @@ import math
 import streamlit as st
 
 from analysis import (
-    LONG_SENTENCE_WORDS, READ_WPM, SPEAK_WPM, analyze, duration, expand_contraction, grade_label, split_sentences,
+    ENDING_ADVICE, LONG_SENTENCE_WORDS, READ_WPM, SPEAK_WPM, analyze, duration, expand_contraction, grade_label,
+    split_sentences,
 )
-from documents import SUPPORTED, DocumentError, extract_text
+from documents import SUPPORTED, DocumentError, clean_pasted, extract_text
 from fixes import apply_fixes
 from highlight import find_spans, legend_html, render_html
+from lessons import LESSONS
+from modes import DEFAULT_MODE, MODES, apply_mode, hidden_spans, ignored
 from nlp_checks import REPEAT_MIN, check
 from report import build_docx, build_markdown, build_pdf
 from score import compare_drafts, describe_counts, issue_counts, score_label, writing_score
+from structure import effort_summary, outline, sentence_effort, word_budget
+from ui.listen import render_listen
 from ui.theme import card_html, counter, feed, final_output
 
 MAX_CHARS = 200_000
@@ -38,6 +43,21 @@ def clear_checker() -> None:
     st.session_state["checker_text"] = ""
     for key in DRAFT_KEYS:
         st.session_state.pop(key, None)
+
+
+def fix_pasted() -> None:
+    text, fixed = clean_pasted(st.session_state.get("checker_text", ""))
+    st.session_state["checker_text"] = text
+    st.session_state["fix_msg"] = ("Fixed: " + "; ".join(fixed) + ".") if fixed else "Nothing to fix: the text looks clean."
+
+
+def mode() -> str:
+    return st.session_state.get("writing_mode") or DEFAULT_MODE
+
+
+def issue(kind: str, title: str, advice: str, quote: str = "") -> str:
+    """An issue card with its lesson ("Why?") when there is one."""
+    return card_html(kind, title, advice, quote, LESSONS.get(title))
 
 
 def score_ring_html(score: int, change: int | None = None) -> str:
@@ -118,12 +138,14 @@ def render_sentence_chart(text: str, lengths: list[int]) -> None:
         color="#94A3B8", strokeDash=[4, 4]).encode(y="Words:Q")
     label = line.mark_text(align="left", dx=4, dy=-7, color="#94A3B8", text=f"long ({LONG_SENTENCE_WORDS}+)").encode(
         x=alt.value(0))
-    st.altair_chart((bars + line + label).properties(height=220), use_container_width=True)
+    st.altair_chart((bars + line + label).properties(height=220), width="stretch")
 
 
 def render_highlighted(text: str, report, box) -> None:
-    spans = find_spans(text, report)
-    kinds = ("typo", "wordy", "cliche", "informal", "adverb", "contraction", "spelling", "starts", "passive", "long")
+    hidden = hidden_spans(mode())
+    spans = [s for s in find_spans(text, report) if s[2] not in hidden]
+    kinds = ("typo", "opening", "wordy", "cliche", "informal", "adverb", "contraction", "spelling", "starts",
+             "passive", "long")
     present = [c for c in kinds if any(s[2] == c for s in spans)]
     with box:
         if present:
@@ -140,7 +162,7 @@ def render_issues(report, nlp) -> None:
     found_nlp = nlp.passive or nlp.repeated or nlp.weak_verbs or nlp.adverbs
     found = (report.long_sentences or report.wordy or report.cliches or report.contractions or report.uk_spelling
              or report.monotonous or report.misspellings or report.informal or report.second_person
-             or report.repeated_starts)
+             or report.repeated_starts or report.weak_openings or report.ending_issues)
     if not found and not found_nlp:
         st.success("No issues found. Nice and clear!")
     if not nlp.available:
@@ -150,49 +172,127 @@ def render_issues(report, nlp) -> None:
     if report.misspellings:
         fixes = ", ".join(f"<i>{html.escape(w)}</i> → <b>{html.escape(fix)}</b>" + (f" ×{n}" if n > 1 else "")
                           for w, fix, n in report.misspellings)
-        cards.append(card_html("grammar", "Spelling", f"probable mistakes: {fixes}"))
-    cards += [card_html("grammar", "Passive voice", "say who does the action", s) for s in nlp.passive]
+        cards.append(issue("grammar", "Spelling", f"probable mistakes: {fixes}"))
+    for phrase in report.weak_openings:
+        cards.append(issue("style", "Weak opening", f"“{html.escape(phrase)}” tells the reader little. Open with your "
+                                                    "own point about the topic"))
+    cards += [issue("grammar", "Passive voice", "say who does the action", s) for s in nlp.passive]
     if report.informal:
         swaps = ", ".join(f"<i>{html.escape(p)}</i> → {html.escape(s)}" + (f" ×{n}" if n > 1 else "")
                           for p, s, n in report.informal)
-        cards.append(card_html("style", "Informal words", f"for essays and reports: {swaps}"))
+        cards.append(issue("style", "Informal words", f"for essays and reports: {swaps}"))
     if report.second_person:
-        cards.append(card_html("style", "Talking to the reader",
-                               f"“you” / “your” ×{report.second_person}. Formal writing usually avoids addressing "
-                               "the reader: try “people”, “students”, “one” or the passive"))
+        cards.append(issue("style", "Talking to the reader",
+                           f"“you” / “your” ×{report.second_person}. Formal writing usually avoids addressing "
+                           "the reader: try “people”, “students”, “one” or the passive"))
     for word, _, length in report.repeated_starts:
-        cards.append(card_html("style", "Repeated sentence starts",
-                               f"{length} sentences in a row begin with “{html.escape(word.capitalize())}”. "
-                               "Vary how they open"))
+        cards.append(issue("style", "Repeated sentence starts",
+                           f"{length} sentences in a row begin with “{html.escape(word.capitalize())}”. "
+                           "Vary how they open"))
     for phrase, suggestion, hits in report.wordy:
-        cards.append(card_html("style", "Wordy phrase", f"“{phrase}” ×{hits}: replace with <b>{suggestion}</b>"))
+        cards.append(issue("style", "Wordy phrase", f"“{phrase}” ×{hits}: replace with <b>{suggestion}</b>"))
     for phrase, hits in report.cliches:
-        cards.append(card_html("style", "Cliché", f"“{phrase}” ×{hits}: say it in your own words"))
+        cards.append(issue("style", "Cliché", f"“{phrase}” ×{hits}: say it in your own words"))
     if report.uk_spelling:
-        cards.append(card_html("grammar", "Mixed UK/US spelling",
-                               f"pick one. UK: {word_list(report.uk_spelling)}. US: {word_list(report.us_spelling)}. "
-                               f"Fewest changes: fix {word_list(report.minority_spelling)}"))
+        cards.append(issue("grammar", "Mixed UK/US spelling",
+                           f"pick one. UK: {word_list(report.uk_spelling)}. US: {word_list(report.us_spelling)}. "
+                           f"Fewest changes: fix {word_list(report.minority_spelling)}"))
     if report.monotonous:
         avg = round(sum(report.sentence_lengths) / len(report.sentence_lengths))
-        cards.append(card_html("style", "Sentence variety",
-                               f"most sentences are about {avg} words long. Mix in some short ones and some longer "
-                               "ones so the writing doesn't sound flat (see the chart below)"))
+        cards.append(issue("style", "Sentence variety",
+                           f"most sentences are about {avg} words long. Mix in some short ones and some longer "
+                           "ones so the writing doesn't sound flat (see the chart below)"))
     for s in report.long_sentences:
-        cards.append(card_html("style", "Long sentence", f"{len(s.split())} words (over {LONG_SENTENCE_WORDS}): split it in two", s))
+        cards.append(issue("style", "Long sentence", f"{len(s.split())} words (over {LONG_SENTENCE_WORDS}): split it in two", s))
     if nlp.adverbs:
-        cards.append(card_html("style", "Filler adverbs", f"usually cut them: {word_list(nlp.adverbs)}"))
+        cards.append(issue("style", "Filler adverbs", f"usually cut them: {word_list(nlp.adverbs)}"))
     if nlp.weak_verbs:
-        cards.append(card_html("style", "Weak verbs", f"a more specific verb is often clearer: {word_list(nlp.weak_verbs)}"))
+        cards.append(issue("style", "Weak verbs", f"a more specific verb is often clearer: {word_list(nlp.weak_verbs)}"))
     if nlp.repeated:
-        cards.append(card_html("style", "Repeated words", f"used {REPEAT_MIN}+ times, consider varying: {word_list(nlp.repeated)}"))
+        cards.append(issue("style", "Repeated words", f"used {REPEAT_MIN}+ times, consider varying: {word_list(nlp.repeated)}"))
     if report.contractions:
         expanded = ", ".join(f"<i>{html.escape(w)}</i> → {html.escape(expand_contraction(w))}" for w, _ in report.contractions)
-        cards.append(card_html("style", "Contractions", f"fine in casual writing; in essays write them out: {expanded}"))
+        cards.append(issue("style", "Contractions", f"fine in casual writing; in essays write them out: {expanded}"))
+    cards += [issue("style", "Conclusion", ENDING_ADVICE[k]) for k in report.ending_issues]
     feed(cards)
 
 
+def render_outline(text: str) -> None:
+    points = outline(text)
+    if len(points) < 2:
+        st.info("Your text is one paragraph. Leave a blank line between paragraphs to see an outline of them.",
+                icon=":material/info:")
+        return
+    st.caption("One line per paragraph: its first sentence (usually the main point) and its key words. Read down "
+               "the list: does each paragraph make one clear point, in an order that builds?")
+    rows = []
+    for p in points:
+        notes = "".join(f'<div class="uf-op-note">⚠ {html.escape(n)}</div>' for n in p.notes)
+        rows.append(
+            f'<div class="uf-op"><div class="uf-op-num">{p.number}</div><div><div>{html.escape(p.main_point)}</div>'
+            f'<div class="uf-op-meta">{p.words} words · {p.sentences} sentence{"s" if p.sentences != 1 else ""}'
+            f' · key words: {html.escape(", ".join(p.key_words))}</div>{notes}</div></div>'
+        )
+    st.markdown(f'<div class="uf-outline">{"".join(rows)}</div>', unsafe_allow_html=True)
+
+
+def budget_html(intro: int, body: int, conclusion: int) -> str:
+    total = intro + body + conclusion
+    parts = (("Intro", intro, "uf-b-intro"), ("Body", body, "uf-b-body"), ("Conclusion", conclusion, "uf-b-end"))
+    bar = "".join(
+        f'<div class="{cls}" style="flex:{max(n, 1)}" title="{name}: {n} words ({n / total:.0%})">'
+        f'{f"{name} {n / total:.0%}" if n / total >= 0.12 else ""}</div>'
+        for name, n, cls in parts
+    )
+    key = "".join(f'<span><i class="{cls}"></i>{name}: {n:,} words ({n / total:.0%})</span>' for name, n, cls in parts)
+    return f'<div class="uf-budget" role="img" aria-label="Word budget">{bar}</div><div class="uf-budget-key">{key}</div>'
+
+
+def render_budget(text: str) -> None:
+    budget = word_budget(text)
+    if budget is None:
+        st.info("Needs at least 3 paragraphs (an introduction, a body and a conclusion), separated by blank lines.",
+                icon=":material/info:")
+        return
+    st.caption("How your words are split between the first paragraph, the middle ones and the last. Most essays "
+               "spend about 10% on each end and the rest on the main points.")
+    st.markdown(budget_html(budget.intro, budget.body, budget.conclusion), unsafe_allow_html=True)
+    for advice in budget.advice:
+        st.warning(advice, icon=":material/balance:")
+    if not budget.advice:
+        st.success("Well balanced: the main points get most of the space.", icon=":material/check_circle:")
+
+
+def render_effort(text: str, nlp) -> None:
+    efforts = sentence_effort(text, nlp.passive)
+    if not efforts:
+        return
+    counts = effort_summary(efforts)
+    st.caption("Each sentence coloured by how much work it asks of the reader: its length, its long words and "
+               "the passive voice. Darker = harder. A few hard sentences are fine; long runs of them tire readers.")
+    spans = [(e.start, e.end, f"effort-{e.level}") for e in efforts]
+    st.markdown(legend_html(["effort-easy", "effort-medium", "effort-hard"]), unsafe_allow_html=True)
+    st.markdown(render_html(text, spans), unsafe_allow_html=True)
+    st.caption(f"{counts['easy']} easy, {counts['medium']} medium and {counts['hard']} hard sentence(s).")
+
+
+def render_deeper_look(text: str, nlp) -> None:
+    st.markdown("#### :material/insights: Deeper look")
+    t_outline, t_budget, t_effort, t_listen = st.tabs(["Reverse outline", "Word budget", "Reader effort", "Listen"])
+    with t_outline:
+        render_outline(text)
+    with t_budget:
+        render_budget(text)
+    with t_effort:
+        render_effort(text, nlp)
+    with t_listen:
+        st.caption("Your browser reads the text aloud and highlights each sentence. Hearing your writing is one of "
+                   "the best ways to catch clumsy sentences.")
+        render_listen(split_sentences(text))
+
+
 def render_improved(text: str, report, nlp) -> None:
-    fixed = apply_fixes(text)
+    fixed = apply_fixes(text, expand_contractions="contraction" not in ignored(mode()))
     if fixed.changes:
         done = ", ".join(f"“{p}” → {r or 'removed'}" + (f" ×{n}" if n > 1 else "") for p, r, n in fixed.changes)
         note = f"Easy fixes applied: {done}."
@@ -211,8 +311,7 @@ def render_report(text: str, source: str, highlight_box=None) -> None:
         st.warning(f"Text is long; analysing the first {MAX_CHARS:,} characters.")
         text = text[:MAX_CHARS]
 
-    report = analyze(text)
-    nlp = check(text)
+    report, nlp = apply_mode(analyze(text), check(text), mode())
     score, counts = writing_score(report, nlp), issue_counts(report, nlp)
     prev = track_draft(text, score, counts)
 
@@ -239,6 +338,7 @@ def render_report(text: str, source: str, highlight_box=None) -> None:
                    "short and long sentences. Hover a bar to see the sentence.")
         render_sentence_chart(text, report.sentence_lengths)
 
+    render_deeper_look(text, nlp)
     render_improved(text, report, nlp)
 
     st.markdown("#### :material/download: Download report")
@@ -265,16 +365,25 @@ def render() -> None:
             placeholder="Paste a paragraph or more...", label_visibility="collapsed",
         )
         counter(text)
-        limit_col, _ = st.columns([1, 3])
+        mode_col, limit_col, _ = st.columns([1, 1, 2])
+        mode_col.selectbox("Writing type", list(MODES), key="writing_mode",
+                           help="Turns off checks that don't suit the kind of text. "
+                                + " ".join(f"**{name}**: {desc}" for name, (desc, _) in MODES.items()))
         limit_col.number_input("Word limit (optional)", min_value=0, max_value=100_000, step=100, key="word_limit",
                                help="Your assignment's word limit. Leave at 0 for none.")
+        st.caption(MODES[mode()][0])
         show_word_limit(len(text.split()))
-        b_analyse, b_clear, b_sample = st.columns([2, 1, 1])
+        b_analyse, b_fix, b_clear, b_sample = st.columns([2, 1, 1, 1])
         analyse = b_analyse.button("Analyse Text", key="analyse", type="primary", icon=":material/auto_fix_high:", width="stretch")
+        b_fix.button("Fix pasted text", key="fix_pasted", icon=":material/cleaning_services:", width="stretch",
+                     on_click=fix_pasted, help="Joins lines broken by copying from a PDF, rejoins split words, and "
+                                               "removes page numbers, double spaces and invisible characters.")
         b_clear.button("Clear All", key="clear_checker", icon=":material/delete:", width="stretch",
                        on_click=clear_checker)
         b_sample.button("Try a sample", key="sample_checker", icon=":material/lightbulb:", width="stretch",
                         on_click=load_sample)
+        if msg := st.session_state.pop("fix_msg", None):
+            st.success(msg, icon=":material/cleaning_services:")
 
         st.markdown("#### Highlighted Issues")
         if analyse and text.strip():

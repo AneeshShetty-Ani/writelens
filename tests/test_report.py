@@ -48,6 +48,13 @@ def test_report_has_spelling_tone_and_starts():
     assert "### Repeated sentence starts" in md and "3 sentences in a row begin with “You”" in md
 
 
+def test_report_has_openings_and_conclusion():
+    text = "In today's world, phones matter.\n\nThey help students.\n\nOverall, 60% of students agree."
+    md = build_markdown(analyze(text), NlpReport())
+    assert "### Weak opening" in md and "“in today's world” → open with your own point instead" in md
+    assert "### Conclusion" in md and "- Your conclusion brings in new evidence" in md
+
+
 def test_docx_report():
     data = build_docx(analyze(MESSY), NlpReport(), "essay.pdf")
     document = docx.Document(io.BytesIO(data))

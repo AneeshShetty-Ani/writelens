@@ -3,12 +3,15 @@ import html
 import streamlit as st
 
 from auth import require_login, sign_out
-from ui import about_page, checker_page, citations_page, feedback_page, plagiarism_page, similarity_page
+from ui import (
+    about_page, assignment_page, checker_page, citations_page, feedback_page, plagiarism_page, similarity_page,
+)
 from ui.theme import VERSION, apply_css, banner
 
 # key -> (top navigation label, icon)
 PAGES = {
     "checker": ("Writing", ":material/edit_note:"),
+    "assignment": ("Assignment", ":material/assignment:"),
     "plagiarism": ("Plagiarism", ":material/plagiarism:"),
     "citations": ("Citations", ":material/format_quote:"),
     "similarity": ("Compare", ":material/compare_arrows:"),
@@ -18,10 +21,13 @@ PAGES = {
 # Streamlit deletes the state of widgets that aren't drawn, so text typed on one page would be
 # lost after visiting another. Re-assigning these keys every run keeps them.
 PERSISTENT_KEYS = (
-    "checker_text", "word_limit", "plag_source", "plag_submission", "plag_n", "plag_cite", "plag_draft", "plag_source_text",
+    "checker_text", "word_limit", "writing_mode", "assign_prompt", "assign_text", "plag_source", "plag_submission", "plag_n", "plag_cite", "plag_draft", "plag_source_text",
     "cite_style", "cite_text", "doc_a", "doc_b",
 )
 VERSION_HISTORY = [
+    ("1.6.0", "Assignment Checker with an improved version, writing modes, reverse outline, word budget, reader effort map, "
+              "listen to your text, weak openings and conclusions, “Why?” lessons, fix pasted text, book "
+              "citations by ISBN"),
     ("1.5.0", "spelling mistakes, informal words and talking to the reader, repeated sentence starts, "
               "automatic tests on GitHub"),
     ("1.4.0", "PDF upload, report download as PDF and Word, cliché / contraction / mixed UK-US spelling checks, "
@@ -38,10 +44,14 @@ VERSION_HISTORY = [
     ("0.1", "Readability stats, wordy phrases, long sentences"),
 ]
 WHATS_NEW = [
-    ("Spelling", "probable typos underlined, with the fix (recieve → receive)"),
-    ("Formal tone", "casual words (gonna, stuff, a lot of) with formal choices, and essays that keep saying “you”"),
-    ("Sentence starts", "spots three or more sentences in a row that begin with the same word"),
-    ("Always tested", "every update runs all the tests automatically on GitHub"),
+    ("Assignment Checker", "paste the question, see which parts your essay covers, and get an improved "
+                           "version marking what's left to do"),
+    ("Writing modes", "Essay, Report, Email or Casual, so only the checks that fit are used"),
+    ("Deeper look", "reverse outline, word budget, reader effort map, and listen to your text"),
+    ("Openings and endings", "flags “In today's world...” openings and conclusions that repeat or add evidence"),
+    ("Why?", "every suggestion explains its rule with a before and after"),
+    ("Fix pasted text", "repairs broken lines and split words from PDFs in one click"),
+    ("Books by ISBN", "cite a book from its ISBN"),
 ]
 
 st.set_page_config(page_title="WriteLens", page_icon="🔍", layout="wide", initial_sidebar_state="collapsed")
@@ -78,6 +88,8 @@ with st.container(key="topnav", horizontal=True, gap="small"):
 
 if page == "checker":
     checker_page.render()
+elif page == "assignment":
+    assignment_page.render()
 elif page == "plagiarism":
     plagiarism_page.render()
 elif page == "citations":

@@ -6,7 +6,7 @@ import streamlit as st
 
 from analysis import READ_WPM, SPEAK_WPM, duration
 
-VERSION = "1.5.0"
+VERSION = "1.6.0"
 
 CSS = """
 <style>
@@ -135,9 +135,50 @@ html, body, .stApp, .stMarkdown, button, textarea, input, label, h1, h2, h3, h4,
 .uf-typo { text-decoration: underline wavy #F87171; text-underline-offset: 4px; text-decoration-thickness: 2px; }
 .uf-informal { background: rgba(245, 158, 11, .14); color: #FCD34D; border-radius: 3px; }
 .uf-starts { border-bottom: 2px solid #A78BFA; }
+.uf-opening { background: rgba(244, 114, 182, .2); color: #FBCFE8; border-radius: 3px; }
 .uf-long { border-bottom: 2px dotted #67E8F9; }
 .uf-legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: .82rem; margin: .2rem 0 .8rem; }
 .uf-legend span { padding: 1px 6px; }
+/* reader effort: one hue, stronger = harder to read */
+.uf-effort-easy { background: rgba(249, 115, 22, .06); }
+.uf-effort-medium { background: rgba(249, 115, 22, .24); }
+.uf-effort-hard { background: rgba(249, 115, 22, .48); color: #FFF7ED; }
+
+/* "Why?" lesson inside an issue card */
+.uf-why { margin-top: 6px; font-size: .84rem; }
+.uf-why summary { cursor: pointer; font-weight: 600; opacity: .85; }
+.uf-why p { margin: 4px 0 2px; color: var(--uf-text); opacity: .85; }
+.uf-example { display: grid; gap: 2px; }
+.uf-before { color: #FCA5A5; }
+.uf-after { color: #86EFAC; }
+
+/* reverse outline */
+.uf-outline { display: grid; gap: 8px; margin-bottom: 1rem; }
+.uf-op { display: grid; grid-template-columns: 2.2rem 1fr; gap: 10px; padding: 10px 14px; border-radius: 10px;
+  background: var(--uf-glass); border: 1px solid var(--uf-edge); }
+.uf-op-num { font-weight: 800; color: var(--uf-accent); font-size: 1.1rem; }
+.uf-op-meta { color: var(--uf-muted); font-size: .8rem; }
+.uf-op-note { color: #FCD34D; font-size: .84rem; }
+
+/* word budget: one bar, a 2px gap between parts */
+.uf-budget { display: flex; height: 34px; border-radius: 8px; overflow: hidden; gap: 2px; margin: .4rem 0 .6rem; }
+.uf-budget div { display: flex; align-items: center; justify-content: center; font-size: .78rem; font-weight: 600;
+  color: #0B1220; white-space: nowrap; overflow: hidden; }
+.uf-b-intro { background: #22D3EE; }
+.uf-b-body { background: #818CF8; }
+.uf-b-end { background: #F472B6; }
+.uf-budget-key { display: flex; gap: 16px; flex-wrap: wrap; font-size: .84rem; color: var(--uf-muted); }
+.uf-budget-key i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; }
+
+/* assignment checklist: icon + word, so the status never relies on colour alone */
+.uf-req { display: flex; gap: 10px; align-items: baseline; padding: 8px 12px; margin-bottom: 6px; border-radius: 10px;
+  background: var(--uf-glass); border: 1px solid var(--uf-edge); font-size: .92rem; }
+.uf-req-icon { flex: none; font-weight: 700; min-width: 6.5rem; }
+.uf-req-ok .uf-req-icon { color: #4ade80; }
+.uf-req-partial .uf-req-icon { color: #F59E0B; }
+.uf-req-missing .uf-req-icon { color: #F87171; }
+.uf-req-check .uf-req-icon { color: var(--uf-muted); }
+.uf-req small { color: var(--uf-muted); }
 
 /* issue feed: frosted cards in a fluid grid, coloured by kind */
 .uf-feed { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: .8rem; margin-bottom: 1rem; }
@@ -174,13 +215,21 @@ def banner() -> None:
     )
 
 
-def card_html(kind: str, title: str, advice: str, quote: str = "") -> str:
+def lesson_html(lesson: tuple[str, str, str]) -> str:
+    why, before, after = (html.escape(part) for part in lesson)
+    return (f'<details class="uf-why"><summary>Why?</summary><p>{why}</p><div class="uf-example">'
+            f'<span class="uf-before">✗ {before}</span><span class="uf-after">✓ {after}</span></div></details>')
+
+
+def card_html(kind: str, title: str, advice: str, quote: str = "", lesson: tuple[str, str, str] | None = None) -> str:
     """An issue badge. `title` and `advice` are trusted app text and may contain <b>/<i>;
-    `quote` is user text and is escaped."""
+    `quote` is user text and is escaped. `lesson` is (why, before, after) from lessons.LESSONS."""
     assert kind in CARD_KINDS
     body = f"<b>{title}</b> → {advice}"
     if quote:
         body += f'<div class="uf-card-quote">{html.escape(quote)}</div>'
+    if lesson:
+        body += lesson_html(lesson)
     return f'<div class="uf-card uf-card-{kind}">{body}</div>'
 
 

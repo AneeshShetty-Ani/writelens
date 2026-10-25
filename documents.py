@@ -71,13 +71,58 @@ def pdf_to_text(data: bytes) -> str:
     except (PdfReadError, ValueError, KeyError) as exc:
         raise DocumentError("This doesn't look like a valid .pdf file.") from exc
 
-    text = "\n\n".join(pages)
-    # PDFs break lines at the page edge: rejoin hyphenated words, then lines inside a paragraph.
-    text = re.sub(r"(\w)-\n(\w)", r"\1\2", text)
-    text = re.sub(r"(?<![.!?:\n])\n(?!\n)", " ", text)
+    text, _, _ = join_broken_lines("\n\n".join(pages))
     if not text.strip():
         raise DocumentError("No text found in this PDF. If it's a scan (a picture of pages), it has no text to read.")
     return text
+
+
+HYPHEN_BREAK = re.compile(r"(\w)-\n(\w)")
+# a line break inside a paragraph: not after the end of a sentence, and not before a blank line or a list item
+LINE_BREAK = re.compile(r"(?<![.!?:\n])\n(?!\n|[ \t]*(?:[-*•]|\d+[.)])\s)")
+
+
+def join_broken_lines(text: str) -> tuple[str, int, int]:
+    """PDFs break lines at the page edge: rejoin hyphenated words, then lines inside a paragraph.
+    Returns (text, words rejoined, lines joined)."""
+    text, hyphens = HYPHEN_BREAK.subn(r"\1\2", text)
+    text, lines = LINE_BREAK.subn(" ", text)
+    return text, hyphens, lines
+
+
+INVISIBLE = re.compile("[­​‌‍⁠﻿]")
+LIGATURES = {"ﬁ": "fi", "ﬂ": "fl", "ﬀ": "ff", "ﬃ": "ffi", "ﬄ": "ffl"}
+PAGE_NUMBER = re.compile(r"^[ \t]*(?:page[ \t]+)?\d{1,3}(?:[ \t]+of[ \t]+\d{1,3})?[ \t]*$\n?", re.IGNORECASE | re.MULTILINE)
+
+
+def clean_pasted(text: str) -> tuple[str, list[str]]:
+    """Tidy text copied from a PDF or web page. Returns (text, what was fixed)."""
+    fixed = []
+
+    def note(count: int, one: str, many: str) -> None:
+        if count:
+            fixed.append(f"{count} {one if count == 1 else many}")
+
+    text = text.replace("\r\n", "\n").replace("\r", "\n")
+    text, n = INVISIBLE.subn("", text)
+    note(n, "invisible character removed", "invisible characters removed")
+    n = sum(text.count(lig) for lig in LIGATURES)
+    for lig, letters in LIGATURES.items():
+        text = text.replace(lig, letters)
+    note(n, "joined letter (ﬁ, ﬂ) fixed", "joined letters (ﬁ, ﬂ) fixed")
+    text = text.replace(" ", " ").replace("\t", " ")
+    text, n = PAGE_NUMBER.subn("", text)
+    note(n, "page number removed", "page numbers removed")
+    text = re.sub(r" *\n *", "\n", text)
+    text, hyphens, lines = join_broken_lines(text)
+    note(hyphens, "word split by a hyphen rejoined", "words split by a hyphen rejoined")
+    note(lines, "broken line joined", "broken lines joined")
+    text, n = re.subn(r" {2,}", " ", text)
+    note(n, "double space fixed", "double spaces fixed")
+    text, n = re.subn(r" +([,.;:!?])(?=\s|$)", r"\1", text)
+    note(n, "space before punctuation removed", "spaces before punctuation removed")
+    text = re.sub(r"\n{3,}", "\n\n", text).strip()
+    return text, fixed
 
 
 # LaTeX commands whose argument is prose worth analysing.

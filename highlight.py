@@ -5,7 +5,7 @@ import re
 
 from analysis import (
     CHECKABLE_WORD, CLICHE_PATTERN, CONTRACTION, INFORMAL_PATTERN, LINK, LONG_SENTENCE_WORDS, SECOND_PERSON,
-    UK_SPELLING, US_SPELLING, WORD, WORDY_PHRASES, Report, analyze, split_sentences,
+    UK_SPELLING, US_SPELLING, WEAK_OPENING, WORD, WORDY_PHRASES, Report, analyze, opening_span, sentence_spans,
 )
 from nlp_checks import is_filler_adverb, is_passive, load_nlp
 
@@ -16,6 +16,7 @@ LABELS = {
     "informal": "Informal",
     "starts": "Repeated sentence start",
     "cliche": "Cliché",
+    "opening": "Weak opening",
     "contraction": "Contraction",
     "spelling": "Mixed UK/US spelling",
     "adverb": "Filler adverb",
@@ -24,6 +25,9 @@ LABELS = {
     "match": "Matching passage",
     "uncited": "Matching passage, not cited",
     "cited": "Matching passage, quoted or cited",
+    "effort-easy": "Easy to read",
+    "effort-medium": "Takes some effort",
+    "effort-hard": "Hard work for the reader",
 }
 
 Span = tuple[int, int, str]
@@ -51,6 +55,9 @@ def find_spans(text: str, report: Report | None = None) -> list[Span]:
         remaining = re.sub(pattern, lambda m: " " * len(m.group()), remaining, flags=re.IGNORECASE)
 
     spans.extend((m.start(), m.end(), "cliche") for m in CLICHE_PATTERN.finditer(text))
+    if report.weak_openings:
+        start, end = opening_span(text)
+        spans.extend((m.start(), m.end(), "opening") for m in WEAK_OPENING.finditer(text, start, end))
     spans.extend((m.start(), m.end(), "contraction") for m in CONTRACTION.finditer(text))
     # with mixed spelling, mark the less-used form: those are the words to change
     uk, us = list(UK_SPELLING.finditer(text)), list(US_SPELLING.finditer(text))
@@ -58,14 +65,10 @@ def find_spans(text: str, report: Report | None = None) -> list[Span]:
         spans.extend((m.start(), m.end(), "spelling") for m in (us if len(us) < len(uk) else uk))
 
     in_run = {i for _, first, length in report.repeated_starts for i in range(first, first + length)}
-    pos = 0
-    for i, sentence in enumerate(split_sentences(text)):
-        start = text.find(sentence, pos)
-        if start < 0:
-            continue
-        pos = start + len(sentence)
+    for i, (start, end) in enumerate(sentence_spans(text)):
+        sentence = text[start:end]
         if len(WORD.findall(sentence)) > LONG_SENTENCE_WORDS:
-            spans.append((start, pos, "long"))
+            spans.append((start, end, "long"))
         if i in in_run and (first_word := WORD.search(sentence)):
             spans.append((start + first_word.start(), start + first_word.end(), "starts"))
 

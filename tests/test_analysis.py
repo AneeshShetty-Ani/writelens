@@ -135,6 +135,25 @@ def test_repeated_sentence_starts():
     assert analyze("The cat ran. The dog sat. The bird sang.").repeated_starts == [("the", 0, 3)]
 
 
+def test_weak_openings_only_in_the_opening():
+    r = analyze("In today's world, phones matter. In this essay I will explain why. Phones help.")
+    assert r.weak_openings == ["in this essay i will", "in today's world"]
+    late = "Phones matter.\n\nThey help students.\n\nIn today's world, that is normal."
+    assert analyze(late).weak_openings == []
+
+
+def test_conclusion_that_repeats_the_introduction():
+    intro = "Phones help students learn faster in class every single day of the week."
+    text = f"{intro}\n\nThey give quick access to notes and videos.\n\nIn conclusion, {intro.lower()}"
+    assert analyze(text).ending_issues == ["repeats-intro"]
+
+
+def test_conclusion_with_new_evidence():
+    text = "Phones help.\n\nThey give access to notes.\n\nOverall, 60% of students agree (Smith, 2020)."
+    assert analyze(text).ending_issues == ["new-evidence"]
+    assert analyze("Too short to have a conclusion (Smith, 2020).").ending_issues == []
+
+
 def test_duration():
     assert duration(0, 238) == "under 1 min"
     assert duration(100, 238) == "under 1 min"

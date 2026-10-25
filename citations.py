@@ -10,6 +10,8 @@ import requests
 STYLES = ("IEEE", "APA", "MLA", "Harvard", "Chicago")  # Chicago = author-date (17th ed.)
 KINDS = {"article": "Journal article", "book": "Book", "web": "Web page"}
 CROSSREF_URL = "https://api.crossref.org/works/"
+OPENLIBRARY_URL = "https://openlibrary.org/api/books"
+OPENLIBRARY_HEADERS = {"User-Agent": "WriteLens citation lookup (https://github.com/AneeshShetty-Ani/writelens)"}
 TIMEOUT = 10
 # [@key] or [@key1; @key2]
 MARKER = re.compile(r"\[@([\w:-]+(?:\s*;\s*@[\w:-]+)*)\]")
@@ -110,6 +112,53 @@ def from_crossref(msg: dict, existing: set[str]) -> Reference:
         doi=msg.get("DOI", ""),
         url=msg.get("URL", ""),
     )
+
+
+# ---- ISBN lookup ------------------------------------------------------------
+
+def normalize_isbn(isbn: str) -> str:
+    """Digits of an ISBN-10 or ISBN-13, after checking its check digit."""
+    raw = re.sub(r"^\s*isbn(?:-1[03])?:?", "", isbn.strip(), flags=re.IGNORECASE)
+    digits = re.sub(r"[\s-]", "", raw).upper()
+    if re.fullmatch(r"\d{9}[\dX]", digits):
+        valid = sum((10 - i) * (10 if c == "X" else int(c)) for i, c in enumerate(digits)) % 11 == 0
+    elif re.fullmatch(r"97[89]\d{10}", digits):
+        valid = sum((3 if i % 2 else 1) * int(c) for i, c in enumerate(digits)) % 10 == 0
+    else:
+        raise CitationError("That doesn't look like an ISBN. It has 10 or 13 digits, like 978-0-14-143951-8.")
+    if not valid:
+        raise CitationError("That ISBN's last digit doesn't match the others, so there's probably a typo.")
+    return digits
+
+
+def lookup_isbn(isbn: str, existing: set[str]) -> Reference:
+    isbn = normalize_isbn(isbn)
+    params = {"bibkeys": f"ISBN:{isbn}", "format": "json", "jscmd": "data"}
+    try:
+        resp = requests.get(OPENLIBRARY_URL, params=params, headers=OPENLIBRARY_HEADERS, timeout=TIMEOUT)
+        resp.raise_for_status()
+        data = resp.json()
+    except requests.RequestException as exc:
+        raise CitationError("Could not reach Open Library. Check your connection and try again.") from exc
+    except ValueError as exc:
+        raise CitationError("Open Library returned an unexpected response. Please try again.") from exc
+    book = data.get(f"ISBN:{isbn}") if isinstance(data, dict) else None
+    if not book or not book.get("title"):
+        raise CitationError(f"No book found for ISBN {isbn}. Add it under Enter manually.")
+    return from_openlibrary(book, existing)
+
+
+def from_openlibrary(book: dict, existing: set[str]) -> Reference:
+    title = book["title"] + (f": {book['subtitle']}" if book.get("subtitle") else "")
+    authors = []
+    for a in book.get("authors", []):
+        if name := (a.get("name") or "").strip():
+            family, given = split_name(name)
+            authors.append(f"{family}, {given}".strip(", "))
+    year = m.group() if (m := re.search(r"\b(1[5-9]|20)\d{2}\b", book.get("publish_date", ""))) else ""
+    publishers = book.get("publishers") or [{}]
+    return Reference(key=make_key(authors, year, existing), kind="book", title=title, authors=authors, year=year,
+                     container=(publishers[0].get("name") or "").strip())
 
 
 # ---- in-text citations ------------------------------------------------------

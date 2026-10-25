@@ -34,6 +34,10 @@ def test_expands_safe_contractions_only():
     assert ("don't", "do not", 1) in r.changes and ("they're", "they are", 1) in r.changes
 
 
+def test_contractions_kept_when_mode_allows_them():
+    assert apply_fixes("We don't know.", expand_contractions=False).text == "We don't know."
+
+
 def test_leaves_ambiguous_contractions():
     # it's = it is / it has, he'd = he would / he had, ain't = am / is / are not
     text = "It's late and he'd left, but it ain't over."

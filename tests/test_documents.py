@@ -3,7 +3,7 @@ import io
 import docx
 import pytest
 
-from documents import DocumentError, extract_text
+from documents import DocumentError, clean_pasted, extract_text, join_broken_lines
 
 
 def make_docx(paragraphs: list[str], table: list[list[str]] | None = None) -> bytes:
@@ -18,6 +18,25 @@ def make_docx(paragraphs: list[str], table: list[list[str]] | None = None) -> by
     buf = io.BytesIO()
     document.save(buf)
     return buf.getvalue()
+
+
+def test_clean_pasted_pdf_text():
+    pasted = ("The results were sig-\nnificant for every\ngroup we tested .\r\n\r\n12\r\n\r\n"
+              "Second  para­graph about ﬁsh.​")
+    text, fixed = clean_pasted(pasted)
+    assert text == "The results were significant for every group we tested.\n\nSecond paragraph about fish."
+    assert fixed == ["2 invisible characters removed", "1 joined letter (ﬁ, ﬂ) fixed", "1 page number removed",
+                     "1 word split by a hyphen rejoined", "1 broken line joined", "1 double space fixed",
+                     "1 space before punctuation removed"]
+
+
+def test_clean_text_needs_no_fixing():
+    assert clean_pasted("Already clean.\n\nTwo paragraphs.") == ("Already clean.\n\nTwo paragraphs.", [])
+
+
+def test_broken_lines_keep_list_items():
+    text, _, joined = join_broken_lines("Shopping list\n- eggs\n- milk\n1. first\nend")
+    assert text == "Shopping list\n- eggs\n- milk\n1. first end" and joined == 1
 
 
 def test_docx_paragraphs_and_tables():

@@ -1,11 +1,13 @@
 import streamlit as st
 
 from analysis import (
-    LONG_SENTENCE_WORDS, READ_WPM, REPEATED_START_RUN, SECOND_PERSON_MIN, SPEAK_WPM, SPELLING_TERM_MIN,
-    VARIETY_MIN_SENTENCES, VARIETY_MIN_SPREAD,
+    ENDING_REPEAT_SHARE, LONG_SENTENCE_WORDS, READ_WPM, REPEATED_START_RUN, SECOND_PERSON_MIN, SPEAK_WPM,
+    SPELLING_TERM_MIN, VARIETY_MIN_SENTENCES, VARIETY_MIN_SPREAD,
 )
+from modes import MODES
 from score import WEIGHTS
 from similarity import MATCH_WORDS, NGRAM
+from structure import PARAGRAPH_MAX_WORDS, SIMILAR_PARAGRAPHS
 
 # (title, icon, explanation)
 SECTIONS = [
@@ -25,6 +27,14 @@ SECTIONS = [
 - **Formal tone**: a list of casual words with formal choices (*gonna → going to*, *a lot of → many*), and a
   note when "you" / "your" appears {SECOND_PERSON_MIN}+ times, since essays rarely address the reader.
 - **Repeated sentence starts**: {REPEATED_START_RUN}+ sentences in a row beginning with the same word.
+- **Openings and conclusions**: the first paragraph is checked for openings that tell the reader nothing
+  (*In today's world*, *Webster's dictionary defines*, *In this essay I will*). With 3+ paragraphs, the last one
+  is flagged if {ENDING_REPEAT_SHARE:.0%}+ of its 4-word runs also appear in the first (it repeats the
+  introduction), or if it has a citation or a statistic (new evidence belongs in the body).
+- **Writing modes**: {" ".join(f"*{name}*: {desc}" for name, (desc, _) in MODES.items())}
+- **Why?**: each card explains the rule behind it, with a before and after example.
+- **Fix pasted text** joins lines broken by copying from a PDF, rejoins words split by a hyphen, and removes
+  page numbers, double spaces and invisible characters.
 - **Reading and speaking time**: words ÷ {READ_WPM} (average silent reading speed) and ÷ {SPEAK_WPM} (a
   comfortable pace for a talk).
 - **Sentence variety**: the chart shows the words in each sentence. With {VARIETY_MIN_SENTENCES}+ sentences, if
@@ -45,6 +55,40 @@ SECTIONS = [
   ({", ".join(f"{k.replace('_', ' ')} −{v}" for k, v in WEIGHTS.items())}), plus a little more if the text is
   hard to read. Measuring per 100 words means a long essay isn't punished just for being long.
 """),
+    ("Deeper look", ":material/insights:", f"""
+- Paragraphs are split at blank lines (or line breaks, if there are none); short lines that don't end like a
+  sentence are treated as headings.
+- **Reverse outline**: each paragraph's first sentence (usually its main point) and its most used content words.
+  Words are compared by their stem, so *study* and *studies* count as one. Two paragraphs are marked as covering
+  the same ground when the cosine similarity of their word counts is {SIMILAR_PARAGRAPHS} or more. Paragraphs over
+  {PARAGRAPH_MAX_WORDS} words, and one-sentence paragraphs, get a note.
+- **Word budget**: words in the first paragraph, the middle ones and the last. An introduction or conclusion
+  under 5% or over 20% of the text gets a note.
+- **Reader effort**: each sentence scores up to 0.5 for length (full at {LONG_SENTENCE_WORDS + 10} words), up to
+  0.35 for its share of 3+ syllable words (full at 30%), and 0.15 if it's passive. Under 0.35 is easy, under 0.6
+  medium, the rest hard.
+- **Listen** uses your browser's built-in speech (the Web Speech API) and prefers voices that run on your device.
+  The text goes from this page to your browser's voice, not to the WriteLens server.
+"""),
+    ("Assignment Checker", ":material/assignment:", """
+- **Tasks**: instruction words in the question (*compare*, *evaluate*, *discuss*, *explain*, *analyse*,
+  *recommend*, *define*, *reflect*) are matched with signs in the essay: *whereas* and *unlike* for comparing,
+  *however* and *limitation* for evaluating, *because* and *as a result* for explaining, and so on. Two or more
+  signs count as covered, one as partly.
+- **Numbers**: *three sources*, *two examples*, *five paragraphs* are counted (sources by distinct citations
+  such as *(Smith, 2020)* or *[1]*, examples by *for example* / *such as*). Things that can't be counted, like
+  *reasons*, are listed for you to check.
+- **Length**: a word count (within 10%) or a range such as *1,200–1,500 words*.
+- **Structure**: an introduction and conclusion (3+ paragraphs, the last one summing up) and a *References* heading
+  if a reference list is asked for.
+- **Topics**: the question's key words (not the instruction words), found by stem, with the paragraphs they
+  appear in.
+- **Improved version**: your essay with the Writing Checker's safe fixes applied, and a **[TO DO: ...]** note at
+  each place that still needs your work: missing tasks and topics at the end of the main body, an introduction
+  at the start, a conclusion at the end, and a References heading if one was asked for. WriteLens doesn't write
+  the missing content for you; the notes show where your own words are needed.
+- It matches words, not meaning, so treat it as a checklist rather than a mark.
+"""),
     ("Plagiarism Checker", ":material/plagiarism:", f"""
 - Both texts are lower-cased and split into words, then into **n-grams** (runs of *n* words in a row, default 4).
 - **Similarity** = the share of the submitted text's words that sit inside an n-gram also found in the source.
@@ -56,6 +100,8 @@ SECTIONS = [
 """),
     ("Citations", ":material/format_quote:", """
 - **DOI lookup** asks the free Crossref API for the title, authors, journal and year.
+- **Book (ISBN)** checks the ISBN's check digit, then asks Open Library (a free book catalogue) for the title,
+  authors, publisher and year.
 - References are formatted in **IEEE, APA, MLA, Harvard or Chicago** (author-date) style.
 - Write `[@key]` in your text; WriteLens replaces each marker with a formatted citation, builds the reference
   list, and exports **BibTeX (.bib)**, **CSL-JSON** (works with Zotero and Mendeley) and **LaTeX `\\cite`**.
@@ -92,5 +138,6 @@ def render() -> None:
     for title, icon, body in SECTIONS:
         with st.expander(f"{icon} **{title}**", expanded=title == "Writing Checker"):
             st.markdown(body)
-    st.caption("Built with Python, Streamlit, spaCy, pyspellchecker, difflib, requests (Crossref API), python-docx, "
-               "pypdf and fpdf2. Every update is tested automatically on GitHub Actions.")
+    st.caption("Built with Python, Streamlit, spaCy, pyspellchecker, difflib, requests (Crossref and Open Library "
+               "APIs), python-docx, pypdf, fpdf2 and the Web Speech API. Every update is tested automatically on "
+               "GitHub Actions.")

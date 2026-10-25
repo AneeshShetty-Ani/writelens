@@ -104,6 +104,43 @@ SECOND_PERSON_MIN = 3  # one "you" in a quote is fine; several means the essay i
 # Sentence starts: this many sentences in a row beginning with the same word reads repetitively.
 REPEATED_START_RUN = 3
 
+# Paragraphs are split at blank lines (or at line breaks, if there are none). A block shorter than this
+# that doesn't end like a sentence is a heading, not a paragraph.
+PARAGRAPH_BREAK = re.compile(r"\n[ \t]*\n")
+PARAGRAPH_MIN_WORDS = 8
+# a heading that starts the reference list; the paragraphs end there
+REFERENCES_HEADING = re.compile(r"^[ \t]*(?:references?|reference list|bibliography|works cited|sources)[ \t]*:?[ \t]*$",
+                                re.IGNORECASE | re.MULTILINE)
+# Openings that tell the reader nothing, looked for in the first paragraph. "Since the dawn of time" is
+# already a cliché, so it isn't repeated here.
+WEAK_OPENINGS = (
+    r"in today['’]s (?:modern |fast-paced |busy |digital )?(?:world|society|age)",
+    r"in (?:the|this) (?:modern|digital) (?:world|age|era)",
+    r"(?:from|since) the beginning of time",
+    r"throughout (?:human )?history",
+    r"(?:webster['’]s|the oxford|the cambridge|the) (?:english )?dictionary defines",
+    r"according to (?:the )?(?:webster['’]s |oxford |cambridge )?dictionary",
+    r"have you ever (?:wondered|thought about|asked yourself)",
+    r"in this essay,? (?:i|we) (?:will|am going to|are going to|shall)",
+    r"this essay will (?:discuss|talk about|explore|look at|examine)",
+    r"the (?:purpose|aim) of this essay is to",
+)
+WEAK_OPENING = re.compile(r"\b(?:" + "|".join(WEAK_OPENINGS) + r")\b", re.IGNORECASE)
+# The conclusion (last paragraph) is checked once a text has this many paragraphs.
+ENDING_MIN_PARAGRAPHS = 3
+ENDING_REPEAT_SHARE = 0.4  # share of the conclusion's 4-word runs also in the introduction
+ENDING_ADVICE = {
+    "repeats-intro": "your conclusion repeats your introduction almost word for word. Sum up in new words and "
+                     "say why it matters",
+    "new-evidence": "your conclusion brings in new evidence (a citation or a statistic). Conclusions usually sum "
+                    "up; move new evidence into the body",
+}
+# [@key], \cite{key}, [1] / [1, 2] / [1-3], or (Author, 2020) / (Author et al. 2020a)
+CITATION = re.compile(
+    r"\[@[\w:-]+|\\cite\w*\{|\[\d+(?:\s*[,–-]\s*\d+)*\]|\([^()]*\b(?:1[5-9]|20)\d{2}[a-z]?\b[^()]*\)"
+)
+STATISTIC = re.compile(r"\b\d+(?:\.\d+)?\s?(?:%|per ?cent\b)", re.IGNORECASE)
+
 # Spelling: only all-lowercase words are checked, so names, places and acronyms are never flagged.
 # A word used this often is probably a technical term the dictionary doesn't know.
 SPELLING_TERM_MIN = 3
@@ -191,6 +228,8 @@ class Report:
     informal: list[tuple[str, str, int]] = field(default_factory=list)  # (phrase, formal choice, count)
     second_person: int = 0  # uses of "you" / "your", when there are SECOND_PERSON_MIN or more
     repeated_starts: list[tuple[str, int, int]] = field(default_factory=list)  # see repeated_start_runs()
+    weak_openings: list[str] = field(default_factory=list)  # phrases from WEAK_OPENINGS in the opening
+    ending_issues: list[str] = field(default_factory=list)  # keys of ENDING_ADVICE
     # filled only when the text mixes the two: the UK-spelled and US-spelled words, with counts
     uk_spelling: list[tuple[str, int]] = field(default_factory=list)
     us_spelling: list[tuple[str, int]] = field(default_factory=list)
@@ -268,6 +307,72 @@ def split_sentences(text: str) -> list[str]:
     return [s.replace(PLACEHOLDER, ".").strip() for s in parts if s.strip()]
 
 
+def sentence_spans(text: str) -> list[tuple[int, int]]:
+    """(start, end) of each sentence from split_sentences() in the text."""
+    spans, pos = [], 0
+    for sentence in split_sentences(text):
+        start = text.find(sentence, pos)
+        if start < 0:
+            continue
+        pos = start + len(sentence)
+        spans.append((start, pos))
+    return spans
+
+
+def paragraph_spans(text: str) -> list[tuple[int, int]]:
+    """(start, end) of each paragraph, leaving out headings and the reference list."""
+    if m := REFERENCES_HEADING.search(text):
+        text = text[: m.start()]
+    splitter = PARAGRAPH_BREAK if PARAGRAPH_BREAK.search(text.strip()) else re.compile(r"\n")
+    blocks, pos = [], 0
+    for m in splitter.finditer(text):
+        blocks.append((pos, m.start()))
+        pos = m.end()
+    blocks.append((pos, len(text)))
+    spans = []
+    for start, end in blocks:
+        block = text[start:end]
+        if not (stripped := block.strip()):
+            continue
+        if len(WORD.findall(stripped)) >= PARAGRAPH_MIN_WORDS or stripped[-1] in ".!?\"'”’":
+            start += len(block) - len(block.lstrip())
+            spans.append((start, start + len(stripped)))
+    return spans
+
+
+def split_paragraphs(text: str) -> list[str]:
+    return [text[s:e] for s, e in paragraph_spans(text)]
+
+
+def opening_span(text: str) -> tuple[int, int]:
+    """The first paragraph, or the first three sentences of a text that is a single paragraph."""
+    paragraphs = paragraph_spans(text)
+    if len(paragraphs) >= 2:
+        return paragraphs[0]
+    sentences = sentence_spans(text)
+    return (sentences[0][0], sentences[min(2, len(sentences) - 1)][1]) if sentences else (0, 0)
+
+
+def word_runs(text: str, n: int = 4) -> set[tuple[str, ...]]:
+    words = [w.lower() for w in WORD.findall(text)]
+    return set(zip(*(words[i:] for i in range(n))))
+
+
+def ending_issues(text: str) -> list[str]:
+    """Problems with the conclusion (keys of ENDING_ADVICE), for texts long enough to have one."""
+    paragraphs = paragraph_spans(text)
+    if len(paragraphs) < ENDING_MIN_PARAGRAPHS:
+        return []
+    intro, conclusion = (text[s:e] for s, e in (paragraphs[0], paragraphs[-1]))
+    found = []
+    runs = word_runs(conclusion)
+    if runs and len(runs & word_runs(intro)) / len(runs) >= ENDING_REPEAT_SHARE:
+        found.append("repeats-intro")
+    if CITATION.search(conclusion) or STATISTIC.search(conclusion):
+        found.append("new-evidence")
+    return found
+
+
 def analyze(text: str) -> Report:
     report = Report()
     sentences = split_sentences(text)
@@ -307,6 +412,9 @@ def analyze(text: str) -> Report:
     you = len(SECOND_PERSON.findall(text))
     report.second_person = you if you >= SECOND_PERSON_MIN else 0
     report.repeated_starts = repeated_start_runs(sentences)
+    start, end = opening_span(text)
+    report.weak_openings = [p for p, _ in count_matches(WEAK_OPENING, text[start:end])]
+    report.ending_issues = ending_issues(text)
     uk, us = count_matches(UK_SPELLING, text), count_matches(US_SPELLING, text)
     if uk and us:
         report.uk_spelling, report.us_spelling = uk, us

@@ -6,7 +6,7 @@ from nlp_checks import NlpReport
 # points taken off per occurrence of each kind of issue
 WEIGHTS = {"passive": 3, "wordy": 2, "long": 4, "cliche": 2, "adverb": 1, "weak_verb": 1, "repeated": 1,
            "contraction": 1, "mixed_spelling": 1, "misspelling": 2, "informal": 2, "second_person": 1,
-           "repeated_start": 2}
+           "repeated_start": 2, "weak_opening": 3, "weak_ending": 3}
 PER_WORDS = 100  # issues are counted per this many words, so long texts aren't punished for length
 MIN_WORDS = 50   # a 10-word text with one issue shouldn't drop to zero
 
@@ -26,6 +26,8 @@ ISSUE_NAMES = {
     "informal": ("informal word", "informal words"),
     "second_person": ("use of “you”", "uses of “you”"),
     "repeated_start": ("run of repeated sentence starts", "runs of repeated sentence starts"),
+    "weak_opening": ("weak opening", "weak openings"),
+    "weak_ending": ("problem with the conclusion", "problems with the conclusion"),
 }
 
 
@@ -45,6 +47,8 @@ def issue_counts(report: Report, nlp: NlpReport) -> dict[str, int]:
         "informal": sum(n for _, _, n in report.informal),
         "second_person": report.second_person,
         "repeated_start": len(report.repeated_starts),
+        "weak_opening": len(report.weak_openings),
+        "weak_ending": len(report.ending_issues),
     }
 
 

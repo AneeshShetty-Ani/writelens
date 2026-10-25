@@ -4,14 +4,10 @@ match is quoted or cited."""
 import re
 from dataclasses import dataclass, field
 
-from analysis import split_sentences
+from analysis import CITATION, split_sentences
 from similarity import MATCH_WORDS, merge_runs, ngrams, sequence_ratio, shared_runs, tokenize
 
 MAX_SOURCES = 25
-# [@key], \cite{key}, [1] / [1, 2] / [1-3], or (Author, 2020) / (Author et al. 2020a)
-CITATION = re.compile(
-    r"\[@[\w:-]+|\\cite\w*\{|\[\d+(?:\s*[,–-]\s*\d+)*\]|\([^()]*\b(?:1[5-9]|20)\d{2}[a-z]?\b[^()]*\)"
-)
 
 
 @dataclass

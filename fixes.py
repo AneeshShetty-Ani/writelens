@@ -51,7 +51,7 @@ def at_sentence_start(text: str, pos: int) -> bool:
     return not before or before[-1] in ".!?\n" + CAP
 
 
-def apply_fixes(text: str) -> FixResult:
+def apply_fixes(text: str, expand_contractions: bool = True) -> FixResult:
     result = FixResult(text)
     for phrase in sorted(REPLACEMENTS, key=len, reverse=True):
         replacement = REPLACEMENTS[phrase]
@@ -80,7 +80,8 @@ def apply_fixes(text: str) -> FixResult:
         contraction_counts[word] = (full, contraction_counts.get(word, ("", 0))[1] + 1)
         return full[0].upper() + full[1:] if m.group()[0].isupper() else full
 
-    result.text = CONTRACTION.sub(expand, result.text)
+    if expand_contractions:
+        result.text = CONTRACTION.sub(expand, result.text)
     result.changes += [(w, full, n) for w, (full, n) in contraction_counts.items()]
 
     filler_counts: dict[str, int] = {}

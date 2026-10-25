@@ -4,7 +4,7 @@ import io
 from datetime import date
 from pathlib import Path
 
-from analysis import LONG_SENTENCE_WORDS, READ_WPM, SPEAK_WPM, Report, duration, expand_contraction
+from analysis import ENDING_ADVICE, LONG_SENTENCE_WORDS, READ_WPM, SPEAK_WPM, Report, duration, expand_contraction
 from nlp_checks import REPEAT_MIN, NlpReport
 from score import score_label, writing_score
 
@@ -33,6 +33,8 @@ def stats_rows(report: Report, nlp: NlpReport) -> list[tuple[str, str]]:
 def sections(report: Report, nlp: NlpReport) -> list[tuple[str, list[str]]]:
     """(title, bullet points) for each kind of issue that was found."""
     found = [
+        ("Weak opening", [f"“{p}” → open with your own point instead" for p in report.weak_openings]),
+        ("Conclusion", [ENDING_ADVICE[k][0].upper() + ENDING_ADVICE[k][1:] for k in report.ending_issues]),
         ("Spelling", [f"{w} → {fix}" + (f" ×{n}" if n > 1 else "") for w, fix, n in report.misspellings]),
         ("Wordy phrases", [f"“{p}” ×{n} → consider {s}" for p, s, n in report.wordy]),
         ("Clichés", [f"“{c}” ×{n} → say it in your own words" for c, n in report.cliches]),
