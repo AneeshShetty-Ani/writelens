@@ -310,7 +310,8 @@ def test_session_token_round_trip_and_tampering():
     token = auth.make_session_token("Alice", CFG)
     assert auth.read_session_token(token, CFG) == "Alice"
     name, expires, sig = token.split(".")
-    for bad in (f"Mallory.{expires}.{sig}", f"{name}.{int(expires) + 999}.{sig}", f"{name}.{expires}.x{sig[1:]}",
+    changed = ("y" if sig[0] == "x" else "x") + sig[1:]  # a different first character, whatever it was
+    for bad in (f"Mallory.{expires}.{sig}", f"{name}.{int(expires) + 999}.{sig}", f"{name}.{expires}.{changed}",
                 f"{name}.{expires}.é", "garbage", "", None, "a.b.c.d"):
         assert auth.read_session_token(bad, CFG) is None, bad
     # a token made with another secret (e.g. after the secret is changed) is refused

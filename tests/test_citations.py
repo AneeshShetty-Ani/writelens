@@ -195,6 +195,39 @@ def test_lookup_doi_network_error(monkeypatch):
         citations.lookup_doi("10.1000/x", set())
 
 
+def test_crossref_search_checks_title_and_year(monkeypatch):
+    items = [{"title": ["II Pride and Prejudice"], "type": "book-chapter", "issued": {"date-parts": [[1976]]}},
+             {"title": ["Pride and Prejudice"], "type": "book", "issued": {"date-parts": [[1813]]},
+              "author": [{"family": "Austen", "given": "Jane"}]}]
+    monkeypatch.setattr(citations.requests, "get", lambda *a, **k: FakeResponse(200, {"message": {"items": items}}))
+    text = "Austen, J. Pride and Prejudice. 1813."
+    assert citations.crossref_search(text, set()).year == "1976"  # without a year the first title match wins
+    assert citations.crossref_search(text, set(), year="1813").authors == ["Austen, Jane"]
+    assert citations.crossref_search("Emma by Jane Austen", set()) is None  # titles not in the text
+
+
+def test_parse_reference_reads_common_styles_offline():
+    apa = citations.parse_reference("LeCun, Y., Bengio, Y., & Hinton, G. (2015). Deep learning. Nature, 521(7553), 436-444.")
+    assert apa == {"kind": "article", "title": "Deep learning", "authors": ["LeCun, Y.", "Bengio, Y.", "Hinton, G."],
+                   "year": "2015", "container": "Nature", "volume": "521", "issue": "7553", "pages": "436-444",
+                   "doi": "", "url": ""}
+    ieee = citations.parse_reference('Y. LeCun, Y. Bengio, and G. Hinton, "Deep learning," Nature, vol. 521, '
+                                     'no. 7553, pp. 436-444, 2015.')
+    assert {k: ieee[k] for k in ("title", "authors", "container", "volume", "issue", "pages", "year")} == {
+        "title": "Deep learning", "authors": ["LeCun, Y.", "Bengio, Y.", "Hinton, G."], "container": "Nature",
+        "volume": "521", "issue": "7553", "pages": "436-444", "year": "2015"}
+    chicago = citations.parse_reference('Smith, John, and Jane Doe. "Sleep and Memory." Journal of Sleep Research '
+                                        '12, no. 3 (2019): 45-60.')
+    assert (chicago["authors"], chicago["volume"], chicago["issue"], chicago["year"]) == (
+        ["Smith, John", "Doe, Jane"], "12", "3", "2019")
+    book = citations.parse_reference("Austen, J. Pride and Prejudice. London: T. Egerton, 1813.")
+    assert (book["kind"], book["title"], book["authors"], book["container"], book["year"]) == (
+        "book", "Pride and Prejudice", ["Austen, J."], "T. Egerton", "1813")
+    web = citations.parse_reference("Nguyen, T. (2021). How bees see colour. BBC Future. https://www.bbc.com/future/bees")
+    assert (web["kind"], web["container"], web["url"]) == ("web", "BBC Future", "https://www.bbc.com/future/bees")
+    assert citations.parse_reference("lecun bengio hinton 2015 deep learning nature") is None  # needs AI or Crossref
+
+
 def test_lookup_doi_success(monkeypatch):
     payload = {"message": {"type": "book", "title": ["A Book"], "publisher": "Pub", "author": [{"family": "Doe", "given": "J"}],
                            "issued": {"date-parts": [[2001]]}}}

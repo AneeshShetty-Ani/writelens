@@ -4,7 +4,8 @@ import streamlit as st
 
 from auth import require_login, sign_out
 from ui import (
-    about_page, assignment_page, checker_page, citations_page, feedback_page, plagiarism_page, similarity_page,
+    about_page, assignment_page, checker_page, citations_page, engine, feedback_page, plagiarism_page,
+    similarity_page,
 )
 from ui.theme import VERSION, apply_css, banner
 
@@ -25,6 +26,8 @@ PERSISTENT_KEYS = (
     "cite_style", "cite_text", "doc_a", "doc_b",
 )
 VERSION_HISTORY = [
+    ("1.7.0", "hybrid AI engine: every tool uses free AI models when available and runs offline otherwise, "
+              "long texts are checked by AI in parts, offline reference reading, AI engine status light"),
     ("1.6.0", "Assignment Checker with an improved version, writing modes, reverse outline, word budget, reader effort map, "
               "listen to your text, weak openings and conclusions, “Why?” lessons, fix pasted text, book "
               "citations by ISBN"),
@@ -44,14 +47,15 @@ VERSION_HISTORY = [
     ("0.1", "Readability stats, wordy phrases, long sentences"),
 ]
 WHATS_NEW = [
-    ("Assignment Checker", "paste the question, see which parts your essay covers, and get an improved "
-                           "version marking what's left to do"),
-    ("Writing modes", "Essay, Report, Email or Casual, so only the checks that fit are used"),
-    ("Deeper look", "reverse outline, word budget, reader effort map, and listen to your text"),
-    ("Openings and endings", "flags “In today's world...” openings and conclusions that repeat or add evidence"),
-    ("Why?", "every suggestion explains its rule with a before and after"),
-    ("Fix pasted text", "repairs broken lines and split words from PDFs in one click"),
-    ("Books by ISBN", "cite a book from its ISBN"),
+    ("Hybrid AI engine", "every tool uses AI when it's available and works offline when it isn't; long texts "
+                         "are checked in full, in parts"),
+    ("Writing", "AI finds grammar and clarity problems the rules miss, and polishes the Improved Text"),
+    ("Assignment", "AI judges each requirement by meaning and gives specific hints"),
+    ("Plagiarism and Compare", "AI also catches reworded (paraphrased) passages"),
+    ("Citations", "paste a reference written any way; AI reads it and Crossref checks it's real, and standard "
+                  "styles are read offline too. AI finds a website's hidden author or date"),
+    ("Feedback", "AI tidies your report into a clear GitHub issue"),
+    ("Status light", "under your name: green online, yellow maintenance, red stopped, grey offline"),
 ]
 
 st.set_page_config(page_title="WriteLens", page_icon="🔍", layout="wide", initial_sidebar_state="collapsed")
@@ -80,6 +84,8 @@ with account.popover(user, icon=":material/account_circle:", width="stretch"):
     st.markdown("\n".join(f"- **{name}**: {desc}" for name, desc in WHATS_NEW))
     with st.expander(":material/history: Version history"):
         st.markdown("\n".join(f"- **v{v}**: {desc}" for v, desc in VERSION_HISTORY))
+# filled in after the page, so it shows how the AI did on this run
+ai_status = account.empty()
 
 with st.container(key="topnav", horizontal=True, gap="small"):
     for key, (label, icon) in PAGES.items():
@@ -100,3 +106,5 @@ elif page == "about":
     about_page.render()
 else:
     feedback_page.render(user)
+
+engine.render_status(ai_status)

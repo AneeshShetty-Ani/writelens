@@ -6,7 +6,7 @@ import streamlit as st
 
 from analysis import READ_WPM, SPEAK_WPM, duration
 
-VERSION = "1.6.0"
+VERSION = "1.7.0"
 
 CSS = """
 <style>
@@ -137,6 +137,8 @@ html, body, .stApp, .stMarkdown, button, textarea, input, label, h1, h2, h3, h4,
 .uf-starts { border-bottom: 2px solid #A78BFA; }
 .uf-opening { background: rgba(244, 114, 182, .2); color: #FBCFE8; border-radius: 3px; }
 .uf-long { border-bottom: 2px dotted #67E8F9; }
+.uf-ai { text-decoration: underline wavy #C084FC; text-underline-offset: 4px; }
+.uf-paraphrase { background: rgba(192, 132, 252, .24); color: #F3E8FF; border-radius: 3px; }
 .uf-legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: .82rem; margin: .2rem 0 .8rem; }
 .uf-legend span { padding: 1px 6px; }
 /* reader effort: one hue, stronger = harder to read */
@@ -196,11 +198,26 @@ html, body, .stApp, .stMarkdown, button, textarea, input, label, h1, h2, h3, h4,
 .uf-card-plagiarism { color: #FFAAAA; border-top-color: #F05252; box-shadow: 0 0 14px rgba(240, 82, 82, .15); }
 .uf-card-grammar { color: #FDE68A; border-top-color: #F59E0B; box-shadow: 0 0 14px rgba(245, 158, 11, .12); }
 .uf-card-style { color: #A5F3FC; border-top-color: #06B6D4; box-shadow: 0 0 14px rgba(6, 182, 212, .15); }
+.uf-card-ai { color: #E9D5FF; border-top-color: #C084FC; box-shadow: 0 0 14px rgba(192, 132, 252, .15); }
+.uf-card-ai:hover { box-shadow: 0 8px 26px rgba(192, 132, 252, .25); }
+
+/* AI engine status under the username: the light's colour and speed say the state, the word says it too */
+.uf-engine { display: flex; align-items: center; justify-content: center; gap: 8px; margin-top: 6px;
+  padding: 5px 12px; border-radius: 999px; font-size: .78rem; color: var(--uf-muted);
+  background: var(--uf-glass); border: 1px solid var(--uf-edge); }
+.uf-engine b { color: var(--uf-text); font-weight: 600; }
+.uf-engine-dot { width: 9px; height: 9px; border-radius: 50%; flex: none; }
+.uf-engine-online .uf-engine-dot { background: #4ade80; box-shadow: 0 0 8px #4ade80; animation: uf-blink 1.2s ease-in-out infinite; }
+.uf-engine-maintenance .uf-engine-dot { background: #F59E0B; box-shadow: 0 0 8px #F59E0B; animation: uf-blink 2.8s ease-in-out infinite; }
+.uf-engine-stopped .uf-engine-dot { background: #F05252; box-shadow: 0 0 8px #F05252; animation: uf-blink .6s steps(2, jump-none) infinite; }
+.uf-engine-offline .uf-engine-dot { background: #6B7280; }
+@keyframes uf-blink { 0%, 100% { opacity: 1; } 50% { opacity: .2; } }
+@media (prefers-reduced-motion: reduce) { .uf-engine-dot { animation: none !important; } }
 .uf-card-quote { margin-top: 6px; padding-left: 10px; border-left: 2px solid currentColor; opacity: .85; }
 </style>
 """
 
-CARD_KINDS = ("plagiarism", "grammar", "style")
+CARD_KINDS = ("plagiarism", "grammar", "style", "ai")
 
 
 def apply_css() -> None:

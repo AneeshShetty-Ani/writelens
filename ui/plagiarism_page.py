@@ -1,10 +1,16 @@
+import html
+
 import streamlit as st
 
+from ai_tasks import (
+    MAX_PARTS, Paraphrase, accept_plagiarism, combine_plagiarism, plagiarism_parts, plagiarism_task,
+)
 from documents import SUPPORTED, DocumentError, extract_text
 from highlight import legend_html, render_html
 from plagiarism import MAX_SOURCES, check, quick_check, quote_and_cite
 from similarity import MATCH_WORDS
-from ui.theme import card, clear_keys, counter, final_output
+from ui import engine
+from ui.theme import card, card_html, clear_keys, counter, feed, final_output
 
 FILE_TYPES = ", ".join("." + e for e in SUPPORTED)
 
@@ -104,8 +110,9 @@ def quick_tab() -> None:
     h1.markdown(render_html(source, [(s, e, "match") for s, e in r.spans_source]), unsafe_allow_html=True)
     h2.markdown("##### Submission")
     h2.markdown(render_html(submission, [(s, e, "match") for s, e in r.spans_submission]), unsafe_allow_html=True)
-    st.caption("Matching ignores capital letters and punctuation. Reworded text with the same meaning isn't caught, "
-               "and a quoted, cited passage still shows as a match.")
+    st.caption("Matching ignores capital letters and punctuation, and a quoted, cited passage still shows as a "
+               "match. Reworded text is checked by AI below, when it's available.")
+    render_paraphrases({"Source": source}, submission)
 
     if r.spans_submission:
         st.markdown(f"**Identical phrase sequences ({len(r.spans_submission)})**")
@@ -122,6 +129,37 @@ def quick_tab() -> None:
             "quotes are fine, but most of an essay should be in your own words: rewrite long passages instead.",
             "final-text.txt",
         )
+
+
+def render_paraphrases(sources: dict[str, str], draft: str) -> list[Paraphrase] | None:
+    """Passages the AI says were reworded from a source: invisible to word matching. A long draft or long
+    sources are compared part by part. Returns what was found, or None when it ran offline."""
+    jobs = plagiarism_parts(sources, draft)
+    asked = jobs[:MAX_PARTS]
+    answers = engine.run_parts(
+        "plagiarism",
+        [(plagiarism_task(group, draft[s:e]), accept_plagiarism(group, draft[s:e])) for (s, e), group in asked],
+        draft, *sources, *sources.values())
+    if not answers:
+        engine.offline_note("The reworded-text check")
+        return None
+    st.markdown("#### :material/auto_awesome: Reworded passages (AI)")
+    found = combine_plagiarism(asked, [a.data if a else None for a in answers])
+    if not found:
+        st.success("The AI found no passages reworded from your source(s).", icon=":material/auto_awesome:")
+    else:
+        st.markdown(legend_html(["paraphrase"]), unsafe_allow_html=True)
+        st.markdown(render_html(draft, [(p.start, p.end, "paraphrase") for p in found]), unsafe_allow_html=True)
+        feed([card_html("ai", f"Reworded from {html.escape(p.source)}",
+                        html.escape(p.why or "same idea in different words") + ". Cite the source here, even "
+                        "though the words are your own.", f"Source: “{p.source_quote}”") for p in found])
+    st.caption(f"By {engine.by_line(answers)}. Rewording someone's idea still needs a citation. Each passage shown "
+               "was checked against both texts, but the AI judges meaning, so decide for yourself.")
+    engine.partial_note(answers, "the comparison")
+    if len(jobs) > len(asked):
+        st.caption(f":material/cloud_off: The texts are very long, so the AI compared {len(asked)} of "
+                   f"{len(jobs)} pairs of parts; word-for-word matching above still covers everything.")
+    return found
 
 
 def md_cell(text: str) -> str:
@@ -192,6 +230,7 @@ def multi_tab() -> None:
 
     if not r.matches:
         st.success(f"No passages of {MATCH_WORDS}+ words match your sources.")
+        render_paraphrases(dict(list(sources.items())[:MAX_SOURCES]), draft)
         return
     if r.uncited_coverage:
         card("plagiarism", f"{r.uncited_coverage:.0%} of your draft matches a source without a citation",
@@ -215,6 +254,7 @@ def multi_tab() -> None:
             status = ":green[quoted or cited]" if m.cited else ":red[not cited]"
             st.markdown(f"**{m.source}** · {status}")
             st.info(draft[m.start : m.end])
+    render_paraphrases(dict(list(sources.items())[:MAX_SOURCES]), draft)
 
     if r.uncited_coverage:
         final_output(

@@ -25,6 +25,8 @@ LABELS = {
     "match": "Matching passage",
     "uncited": "Matching passage, not cited",
     "cited": "Matching passage, quoted or cited",
+    "paraphrase": "Reworded from a source (found by AI)",
+    "ai": "AI suggestion",
     "effort-easy": "Easy to read",
     "effort-medium": "Takes some effort",
     "effort-hard": "Hard work for the reader",

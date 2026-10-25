@@ -8,6 +8,8 @@ from modes import MODES
 from score import WEIGHTS
 from similarity import MATCH_WORDS, NGRAM
 from structure import PARAGRAPH_MAX_WORDS, SIMILAR_PARAGRAPHS
+from ai import DEFAULT_DAILY_LIMIT
+from ai_tasks import PART_CHARS
 
 # (title, icon, explanation)
 SECTIONS = [
@@ -89,6 +91,37 @@ SECTIONS = [
   the missing content for you; the notes show where your own words are needed.
 - It matches words, not meaning, so treat it as a checklist rather than a mark.
 """),
+    ("AI engine (hybrid)", ":material/auto_awesome:", f"""
+- Every tool works **offline**, with the open-source checks described here. When the app owner has added a free
+  AI key, every tool also uses **AI automatically**, on top of the offline results. If the AI is busy or fails,
+  the tool says so and shows the offline results alone.
+- **Whole texts**: a long text is read in parts of about {PART_CHARS:,} characters (cut at paragraph breaks),
+  sent side by side and put back together, so the AI covers all of it. One check counts once towards the
+  daily limit, however many parts it has. A part the AI couldn't check keeps its offline results.
+- **Writing**: the AI looks for problems rules can't see (grammar agreement, unclear sentences, weak logic) and
+  polishes the Improved Text, keeping your meaning.
+- **Assignment**: the AI judges tasks, topics and structure by meaning and gives a specific hint for each gap.
+  Word counts and citations are still counted exactly. It says what to add; it doesn't write it for you.
+- **Plagiarism** and **Compare**: the AI looks for passages reworded from a source, which word matching can't catch.
+- **Citations**: paste a reference written any way. A DOI, ISBN or web address is looked up directly; otherwise the
+  AI reads the fields and Crossref is searched to confirm the work exists. Offline, a reference in a standard
+  style (APA, MLA, Harvard, Chicago, IEEE) is read from its punctuation. For a website that hides its author or
+  date, the AI looks for them in the page's text.
+- **Feedback**: the AI tidies your report into a clear GitHub issue (title, spelling, headings), adding nothing;
+  you can still send your own wording. Your contact details are never sent to the AI.
+- **Checked answers**: every quote the AI gives must really be in your text (and in the source, for
+  plagiarism), a rewrite must stay about the same length, and a reference title must come from what you typed.
+  Anything else is thrown away, and a reply that fails goes to the next model.
+- **Free models in a chain**: OpenRouter gives one key for many free models. WriteLens reads which ones are on
+  offer, tries them in turn, skips ones that refuse, and tries the last one that worked first. Google Gemini and
+  Groq keys can be added as backups. Each AI result says which model produced it.
+- **Status light** (under your name): green blinking = online; yellow, slow = maintenance (models busy, or your
+  {DEFAULT_DAILY_LIMIT} AI checks for today are used up); red, fast = stopped (key refused or repeated failures);
+  grey = offline (no AI set up).
+- Your text is sent to the AI provider only when you press a check button, and the same text isn't sent twice.
+  Free models may keep what they're sent, so leave out personal details. AI can be wrong; follow your course's
+  rules on using AI.
+"""),
     ("Plagiarism Checker", ":material/plagiarism:", f"""
 - Both texts are lower-cased and split into words, then into **n-grams** (runs of *n* words in a row, default 4).
 - **Similarity** = the share of the submitted text's words that sit inside an n-gram also found in the source.
@@ -121,7 +154,8 @@ SECTIONS = [
 - You stay signed in for 7 days, even after refreshing the page: the address bar holds a signed pass
   (`?session=...`) that the server checks and that can't be forged. **Logout** removes it. Don't share the full
   address while signed in, since it carries that pass.
-- Your text is processed in memory and is not saved anywhere.
+- Your text is processed in memory and is not saved anywhere. The only time it leaves the WriteLens server is
+  when the AI engine is set up and you run a check (see above).
 """),
     ("Uploads and reports", ":material/upload_file:", """
 - Upload **.docx, .pdf, .tex, .md or .txt**. PDF text is read with **pypdf**; a scanned PDF (a picture of pages)
@@ -134,7 +168,8 @@ SECTIONS = [
 
 def render() -> None:
     st.markdown("### :material/help: How it works")
-    st.write("Every check runs on the server with open-source Python, so no text is sent to an AI service.")
+    st.write("Every check runs on the server with open-source Python and works offline. When an AI key is set up, "
+             "every tool also uses free AI models automatically (see AI engine below).")
     for title, icon, body in SECTIONS:
         with st.expander(f"{icon} **{title}**", expanded=title == "Writing Checker"):
             st.markdown(body)

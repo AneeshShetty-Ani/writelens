@@ -182,6 +182,191 @@ def test_assignment_page_uses_writing_text():
     assert at.warning  # no question yet
 
 
+# ---- AI engine (requests to the AI are replaced by canned replies) ----------------------
+
+AI_REPLIES = {
+    "Review this student's text": {
+        "issues": [{"quote": "The report were written", "problem": "Subject and verb don't agree.",
+                    "fix": "Write “was written”."}],
+        "improved": "The team wrote the report. Due to the fact that it rained, we stayed.",
+    },
+    "Judge how well": {
+        "requirements": [{"id": 0, "status": "ok", "reason": "Paragraph 3 weighs benefits against harms."}],
+        "extra": [{"label": "Discuss online study groups", "status": "ok", "reason": "Paragraph 3."}],
+    },
+    "Find passages": {"paraphrases": [{"draft": "Plants make their own food", "source": "Source",
+                                       "source_quote": "green plants and some other organisms use sunlight",
+                                       "why": "Same idea."}]},
+    "Turn this reference": {"kind": "book", "title": "Pride and Prejudice", "authors": ["Austen, Jane"],
+                            "year": "1813", "container": "T. Egerton"},
+    "This is the text of a web page": {"authors": ["Jane Smith"], "year": "2021"},
+    "Tidy up this feedback": {"title": "Add the Chicago citation style",
+                              "description": "### The idea\nPlease add Chicago style to Citations."},
+}
+
+
+def ai_app(monkeypatch, page: str = "checker", fail: bool = False) -> AppTest:
+    """The app with an AI key set and every AI request answered from AI_REPLIES (or failing)."""
+    import ai
+    from ui import engine
+
+    engine.daily_limit.clear()
+    monkeypatch.setattr(ai, "check_key", lambda provider: None)
+    monkeypatch.setattr(ai, "_health", {"busy_at": 0.0, "failures": 0, "refused": False, "key_checked_at": 0.0})
+
+    def fake_ask(providers, task, accept, max_tokens=1200):
+        if fail:
+            ai.note("busy")
+            raise ai.AIError("The free AI models are busy right now.")
+        payload = next(v for k, v in AI_REPLIES.items() if task.startswith(k))
+        return ai.Answer(accept(payload), "OpenRouter", "test/model:free")
+
+    monkeypatch.setattr(ai, "ask", fake_ask)
+    at = signed_in_app(page)
+    at.secrets["ai"] = {"openrouter_key": "test-key", "daily_limit": 5}
+    return at
+
+
+def test_status_light_is_grey_without_a_key():
+    page = markdown_html(signed_in_app().run())
+    assert 'class="uf-engine uf-engine-offline"' in page and "AI engine: <b>Offline</b>" in page
+
+
+def test_writing_uses_ai_review_and_rewrite(monkeypatch):
+    at = ai_app(monkeypatch).run()
+    assert "AI engine: <b>Online</b>" in markdown_html(at)
+    at.text_area(key="checker_text").input("The report were written by the team. Due to the fact that it rained, we stayed.")
+    at.button(key="analyse").click().run()
+    assert not at.exception
+    page = markdown_html(at)
+    assert '<div class="uf-card uf-card-ai"><b>AI suggestion</b>' in page and 'class="uf-ai"' in page
+    assert "<b>Wordy phrase</b>" in page  # the offline checks are still there
+    assert at.code[0].value.startswith("The team wrote the report.")
+    assert any("Polished by AI (model (free) via OpenRouter)" in c.value for c in at.caption)
+
+
+def test_writing_falls_back_offline_and_shows_maintenance(monkeypatch):
+    at = ai_app(monkeypatch, fail=True).run()
+    at.text_area(key="checker_text").input("Due to the fact that it rained, we stayed.")
+    at.button(key="analyse").click().run()
+    page = markdown_html(at)
+    assert 'class="uf-card uf-card-ai"' not in page and at.code[0].value.startswith("Because it rained")
+    assert any("ran offline only: the free ai models are busy right now" in c.value for c in at.caption)
+    assert "AI engine: <b>Maintenance</b>" in page
+
+
+def test_daily_ai_limit_then_offline(monkeypatch):
+    at = ai_app(monkeypatch)
+    at.secrets["ai"] = {"openrouter_key": "test-key", "daily_limit": 1}
+    at.run()
+    at.text_area(key="checker_text").input("The report were written by the team.")
+    at.button(key="analyse").click().run()
+    assert 'class="uf-card uf-card-ai"' in markdown_html(at)
+    at.text_area(key="checker_text").input("The report were written by the team again.")
+    at.button(key="analyse").click().run()
+    assert any("today's AI limit is used up" in c.value for c in at.caption)
+    assert "AI engine: <b>Maintenance</b>" in markdown_html(at)
+
+
+def test_assignment_uses_ai_judgements(monkeypatch):
+    at = ai_app(monkeypatch, "assignment").run()
+    at.button(key="assign_example").click().run()
+    at.button(key="assign_check").click().run()
+    assert not at.exception
+    page = markdown_html(at)
+    assert "Paragraph 3 weighs benefits against harms." in page and "Discuss online study groups" in page
+    assert any("judged by AI" in c.value for c in at.caption)
+
+
+def test_plagiarism_finds_reworded_passages_with_ai(monkeypatch):
+    at = ai_app(monkeypatch, "plagiarism").run()
+    at.selectbox(key="plag_example").select("Some overlap").run()
+    at.button(key="plag_quick").click().run()
+    assert not at.exception
+    page = markdown_html(at)
+    assert 'class="uf-paraphrase"' in page and "<b>Reworded from Source</b>" in page
+
+
+def test_citation_from_any_reference_with_ai(monkeypatch):
+    import citations
+
+    monkeypatch.setattr(citations, "crossref_search", lambda *a, **k: None)
+    from ui import citations_page
+    monkeypatch.setattr(citations_page, "crossref_search", lambda *a, **k: None)
+    at = ai_app(monkeypatch, "citations").run()
+    at.text_area(key="any_input").input("Austen, J. Pride and Prejudice. London: T. Egerton, 1813.")
+    at.button(key="any_lookup").click().run()
+    assert not at.exception
+    assert at.session_state["refs"][0].title == "Pride and Prejudice"
+    assert "read by AI" in at.success[0].value
+
+
+def test_long_text_is_reviewed_in_parts_for_one_daily_use(monkeypatch):
+    import ai
+
+    asked = []
+    at = ai_app(monkeypatch)
+    fake = ai.ask
+    monkeypatch.setattr(ai, "ask", lambda *a, **k: asked.append(1) or fake(*a, **k))
+    at.secrets["ai"] = {"openrouter_key": "test-key", "daily_limit": 1}
+    paragraph = "The report were written by the team. " + "It covered the results in detail. " * 20
+    text = "\n\n".join([paragraph] * 25)  # about 17,000 characters: two parts
+    at.run()
+    at.text_area(key="checker_text").input(text)
+    at.button(key="analyse").click().run()
+    assert not at.exception and len(asked) == 2
+    page = markdown_html(at)
+    assert page.count("<b>AI suggestion</b>") == 2  # an issue found in each part
+    at.text_area(key="checker_text").input(text + " More.")
+    at.button(key="analyse").click().run()
+    assert any("today's AI limit is used up" in c.value for c in at.caption)  # the 2 parts counted once
+
+
+def test_compare_finds_reworded_passages_with_ai(monkeypatch):
+    at = ai_app(monkeypatch, "similarity").run()
+    at.text_area(key="doc_a").input("Plants make their own food. Leaves are green.")
+    at.text_area(key="doc_b").input("Green plants and some other organisms use sunlight to make food.")
+    at.button(key="compare").click().run()
+    assert not at.exception
+    assert "<b>Reworded from Document B</b>" in markdown_html(at)
+    assert "reworded from Document B (found by AI): 1" in at.code[0].value
+
+
+def test_feedback_is_tidied_by_ai(monkeypatch):
+    at = ai_app(monkeypatch, "feedback").run()
+    at.text_input[0].input("chicago pls")
+    next(b for b in at.button if b.label.startswith("Submit Report")).click().run()
+    assert not at.exception
+    assert "Add the Chicago citation style" in markdown_html(at)
+    assert any("Tidied up by AI" in c.value for c in at.caption)
+
+
+def test_website_author_found_by_ai(monkeypatch):
+    from ui import citations_page
+
+    info = {"title": "How bees see colour", "authors": [], "year": "", "site": "Bee News",
+            "url": "https://bees.example/colour", "text": "How bees see colour. By Jane Smith, 2021."}
+    monkeypatch.setattr(citations_page, "read_page", lambda url: dict(info))
+    at = ai_app(monkeypatch, "citations").run()
+    at.text_input(key="url_input").input("https://bees.example/colour")
+    at.button(key="url_lookup").click().run()
+    ref = at.session_state["refs"][0]
+    assert (ref.authors, ref.year, ref.key) == (["Smith, Jane"], "2021", "smith2021")
+    assert "found the author and date in the page's text" in at.success[0].value
+
+
+def test_citation_read_offline_without_ai_or_crossref(monkeypatch):
+    from ui import citations_page
+
+    monkeypatch.setattr(citations_page, "crossref_search", lambda *a, **k: None)
+    at = signed_in_app("citations").run()
+    at.text_area(key="any_input").input("Austen, J. Pride and Prejudice. London: T. Egerton, 1813.")
+    at.button(key="any_lookup").click().run()
+    ref = at.session_state["refs"][0]
+    assert (ref.title, ref.authors, ref.year, ref.container) == ("Pride and Prejudice", ["Austen, J."], "1813", "T. Egerton")
+    assert "read offline" in at.success[0].value
+
+
 def test_app_highlights_issues():
     at = run_with("Due to the fact that it rained, we really stayed.")
     page = markdown_html(at)

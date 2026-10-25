@@ -114,6 +114,142 @@ def from_crossref(msg: dict, existing: set[str]) -> Reference:
     )
 
 
+# ---- a reference written any way ---------------------------------------------
+
+DOI_IN_TEXT = re.compile(r"\b10\.\d{4,9}/[^\s\"<>]+")
+ISBN_IN_TEXT = re.compile(r"\bISBN(?:-1[03])?:?\s*([\dXx][\d\s-]{8,16}[\dXx])\b", re.IGNORECASE)
+TITLE_MATCH_SHARE = 0.8  # share of a Crossref title's words that must be in the text to count as the same work
+
+
+def title_matches(title: str, text: str) -> bool:
+    """Whether a found title is really the one in `text`: most of its words (3+ letters) must appear there."""
+    words = [w for w in re.findall(r"[a-z0-9]+", title.lower()) if len(w) >= 3]
+    have = set(re.findall(r"[a-z0-9]+", text.lower()))
+    return len(words) >= 2 and sum(w in have for w in words) / len(words) >= TITLE_MATCH_SHARE
+
+
+def crossref_search(query: str, existing: set[str], check_against: str = "", year: str = "") -> Reference | None:
+    """The best Crossref match for a free-text reference, if its title is really in `check_against`
+    (default: the query) and, when `year` is given, it's from that year; None if nothing matches or Crossref
+    can't be reached."""
+    try:
+        resp = requests.get(CROSSREF_URL.rstrip("/"), params={"query.bibliographic": query[:500], "rows": 3},
+                            timeout=TIMEOUT)
+        resp.raise_for_status()
+        items = resp.json()["message"]["items"]
+    except (requests.RequestException, ValueError, KeyError):
+        return None
+    for msg in items:
+        title = (msg.get("title") or [""])[0]
+        if title and title_matches(title, check_against or query):
+            ref = from_crossref(msg, existing)
+            if not year or ref.year == year:
+                return ref
+    return None
+
+
+YEAR_IN_TEXT = re.compile(r"\b(1[5-9]\d{2}|20\d{2})[a-z]?\b")
+URL_IN_TEXT = re.compile(r"https?://\S+")
+QUOTED_TITLE = re.compile(r"[\"“](.+?)[\"”]")
+APA_START = re.compile(r"(.+?)\s*\((1[5-9]\d{2}|20\d{2})[a-z]?(?:,[^)]*)?\)[.,]?\s*(.+)")
+# a full stop that ends a part of a reference: not the one after an initial ("J."), "et al." or "vol."
+PART_END = re.compile(r"(?<!\b[A-Z])(?<!\bet al)(?<!\bvol)(?<!\bno)(?<!\bpp)(?<!\bp)[.?!](?=\s|$)", re.IGNORECASE)
+INITIALS = re.compile(r"(?:[A-Z]\.?\s*)*[A-Z]\.?")
+# "Austen, J." or "LeCun, Y., Bengio, Y., & Hinton, G." at the start of a reference
+INITIALED_NAMES = re.compile(r"(?:[A-Z][\w'’-]+,\s*(?:[A-Z]\.\s*)+(?:,|,?\s*(?:&|and)\b)?\s*)+")
+ARTICLE_SIGNS = re.compile(r"\bvol\.|\bno\.\s*\d|\bpp?\.\s*\d|\b\d+\s*\(\d+[\w-]*\)", re.IGNORECASE)
+EDITION = re.compile(r"^\d+(?:st|nd|rd|th) (?:edn|ed|edition)\b|^(?:edited|ed\.|eds\.)", re.IGNORECASE)
+
+
+def reference_parts(text: str) -> list[str]:
+    """'Smith, J. A. Title here? Publisher.' -> ['Smith, J. A', 'Title here?', 'Publisher']."""
+    out, pos = [], 0
+    for m in PART_END.finditer(text):
+        piece = text[pos:m.end() if m.group() in "?!" else m.start()].strip(" ,;:")
+        if piece:
+            out.append(piece)
+        pos = m.end()
+    if rest := text[pos:].strip(" .,;:"):
+        out.append(rest)
+    return out
+
+
+def parse_authors(part: str) -> list[str]:
+    """Names as typed in any common style -> ["Family, Given", ...]: "LeCun, Y., & Bengio, Y.",
+    "Y. LeCun and Y. Bengio", "Austen, Jane", "Smith, John, and Jane Doe"."""
+    part = re.sub(r"\bet al\b\.?", "", part)
+    part = re.sub(r"\s*,?\s*(?:&|\band\b)\s*", ", ", part).strip(" .,;:")
+    tokens = [t.strip() for t in re.split(r"[;,]", part) if t.strip()]
+    authors, i = [], 0
+    while i < len(tokens):
+        name, after = tokens[i], tokens[i + 1] if i + 1 < len(tokens) else ""
+        if " " not in name.strip(".") and after and (INITIALS.fullmatch(after) or " " not in after):
+            if INITIALS.fullmatch(after) and not after.endswith("."):
+                after += "."  # the final full stop was taken as the end of the names
+            authors.append(f"{name.rstrip('.')}, {after}")  # "Family, Given" split by the comma
+            i += 2
+            continue
+        family, given = split_name(name if INITIALS.search(name) else name.rstrip("."))
+        authors.append(f"{family}, {given}".strip(", "))
+        i += 1
+    return authors
+
+
+def parse_reference(text: str) -> dict | None:
+    """Read a reference written in a common style (APA, Harvard, MLA, Chicago, IEEE) without AI or the
+    internet. Returns the same fields as the AI's reading, or None when the text has no recognisable
+    shape (e.g. a list of keywords); the result should still be checked, since styles vary."""
+    text = " ".join(text.split())
+    url = m.group().rstrip(".,;)") if (m := URL_IN_TEXT.search(text)) else ""
+    body = re.sub(r"\b(?:Retrieved from|Available(?: at)?:?|\[Online\]\.?)\s*", "", URL_IN_TEXT.sub("", text),
+                  flags=re.IGNORECASE).strip(" .,")
+    year = m.group(1) if (m := YEAR_IN_TEXT.search(body)) else ""
+    if q := QUOTED_TITLE.search(body):  # MLA, Chicago, IEEE: the title is in quotation marks
+        names, title, rest = body[:q.start()], q.group(1).strip(" .,"), body[q.end():]
+        rest_parts = reference_parts(rest.strip(" .,"))
+    elif m := APA_START.match(body):  # APA, Harvard: Authors (Year). Title. Journal or publisher.
+        names, year = m.group(1), m.group(2)
+        title, *rest_parts = reference_parts(m.group(3)) or [""]
+    else:  # MLA / Chicago books: Authors. [Year.] Title. Publisher, Year.
+        names = m.group() if (m := INITIALED_NAMES.match(body)) else ""
+        pieces = [p for p in reference_parts(body[len(names):]) if not YEAR_IN_TEXT.fullmatch(p)]
+        if not names and pieces:
+            names, pieces = pieces[0], pieces[1:]
+        if not names or not pieces:
+            return None
+        title, *rest_parts = pieces
+    authors = parse_authors(names)
+    if len(title) < 2 or not (authors or year):
+        return None
+    rest = " ".join(rest_parts)
+    article = bool(ARTICLE_SIGNS.search(rest))
+    rest_parts = [p for p in rest_parts if not EDITION.match(p)]
+    # a journal or website comes straight after the title; a book's publisher comes last
+    where = (rest_parts[0] if article or url else rest_parts[-1]) if rest_parts else ""
+    container = re.split(r",\s*(?:vol\.|no\.|pp?\.|\d)|\s+\d", where, maxsplit=1, flags=re.IGNORECASE)[0]
+    container = re.sub(r"^(?:In:?|[A-Z][a-z]+:)\s+", "", container.strip(" .,:"))  # "London: Penguin" -> "Penguin"
+    volume = issue = pages = ""
+    if article:
+        if m := re.search(r"\bvol\.\s*(\d+)|\b(\d+),\s*no\.", rest, re.IGNORECASE):
+            volume = m.group(1) or m.group(2)
+        if m := re.search(r"\bno\.\s*(\d+)", rest, re.IGNORECASE):
+            issue = m.group(1)
+        if not volume and (m := re.search(r"\b(\d+)\s*\((\d+[\w-]*)\)", rest)) and m.group(2) != year:
+            volume, issue = m.group(1), m.group(2)
+        if m := re.search(r"\b(\d+\s*[-–]\s*\d+)\b", rest):
+            pages = re.sub(r"\s", "", m.group(1))
+    return {"kind": "article" if article else "web" if url else "book", "title": title.rstrip("."),
+            "authors": authors, "year": year, "container": container, "volume": volume, "issue": issue,
+            "pages": pages, "doi": "", "url": url}
+
+
+def from_fields(fields: dict, existing: set[str]) -> Reference:
+    """A Reference from a dict of its fields (as the AI reads them from a pasted reference)."""
+    return Reference(key=make_key(fields["authors"], fields["year"], existing), kind=fields["kind"],
+                     title=fields["title"], authors=fields["authors"], year=fields["year"],
+                     **{k: fields.get(k, "") for k in ("container", "volume", "issue", "pages", "doi", "url")})
+
+
 # ---- ISBN lookup ------------------------------------------------------------
 
 def normalize_isbn(isbn: str) -> str:

@@ -17,17 +17,22 @@ MAX_BYTES = 2_000_000
 MAX_REDIRECTS = 4
 HEADERS = {"User-Agent": "Mozilla/5.0 (compatible; WriteLens citation fetcher)", "Accept": "text/html,*/*;q=0.5"}
 YEAR = re.compile(r"\b(1[5-9]\d{2}|20\d{2})\b")
+HIDDEN_TAGS = {"script", "style", "noscript", "template", "svg"}
+MAX_TEXT = 20_000
 
 
 class MetaParser(HTMLParser):
-    """Collects <meta> name/property -> contents, the <title> text, and JSON-LD blocks."""
+    """Collects <meta> name/property -> contents, the <title> text, JSON-LD blocks, and the visible text
+    (for finding a byline when the metadata has no author or date)."""
 
     def __init__(self) -> None:
         super().__init__(convert_charrefs=True)
         self.meta: dict[str, list[str]] = {}
         self.title = ""
         self.json_ld: list[str] = []
+        self.text: list[str] = []
         self._in = ""  # "title" or "ld" while inside those tags
+        self._hidden = 0  # depth inside <script>, <style> and the like
 
     def handle_starttag(self, tag, attrs):
         a = {k.lower(): (v or "") for k, v in attrs}
@@ -40,16 +45,22 @@ class MetaParser(HTMLParser):
         elif tag == "script" and a.get("type", "").lower() == "application/ld+json":
             self._in = "ld"
             self.json_ld.append("")
+        if tag in HIDDEN_TAGS:
+            self._hidden += 1
 
     def handle_endtag(self, tag):
         if tag in ("title", "script"):
             self._in = ""
+        if tag in HIDDEN_TAGS and self._hidden:
+            self._hidden -= 1
 
     def handle_data(self, data):
         if self._in == "title":
             self.title += data
         elif self._in == "ld":
             self.json_ld[-1] += data
+        elif not self._hidden and data.strip() and sum(map(len, self.text)) < MAX_TEXT:
+            self.text.append(" ".join(data.split()))
 
 
 # ---- fetching ---------------------------------------------------------------
@@ -200,20 +211,29 @@ def extract(html: str, url: str) -> dict:
             or [str(ld.get("datePublished") or "")])[0]
     year = m.group(1) if (m := YEAR.search(date)) else ""
 
-    return {"title": title, "authors": authors, "year": year, "site": site, "url": url}
+    return {"title": title, "authors": authors, "year": year, "site": site, "url": url, "text": "\n".join(p.text)}
 
 
-def lookup_url(url: str, existing: set[str]) -> Reference:
+def read_page(url: str) -> dict:
+    """The page's details (see extract), with the address to cite."""
     final_url, html = fetch_html(url)
     info = extract(html, final_url)
     # Redirects to the same page often add tracking or cookie-check queries; cite the address given.
     given = check_url(url)
     if urllib.parse.urlsplit(given).path.rstrip("/") == urllib.parse.urlsplit(final_url).path.rstrip("/"):
-        final_url = given
+        info["url"] = given
     if not info["title"]:
         raise CitationError("Couldn't find a title on that page. Add it under Enter manually.")
+    return info
+
+
+def page_reference(info: dict, existing: set[str]) -> Reference:
     # no author: key on the whole site name ("Site," keeps make_key from taking only its last word)
     return Reference(
         key=make_key(info["authors"] or [info["site"] + ","], info["year"], existing), kind="web", title=info["title"],
-        authors=info["authors"], year=info["year"], container=info["site"], url=final_url,
+        authors=info["authors"], year=info["year"], container=info["site"], url=info["url"],
     )
+
+
+def lookup_url(url: str, existing: set[str]) -> Reference:
+    return page_reference(read_page(url), existing)

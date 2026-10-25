@@ -1,6 +1,8 @@
 import streamlit as st
 
+from ai_tasks import accept_feedback, feedback_task
 from feedback import CATEGORIES, ISSUES_REPO, issue_url
+from ui import engine
 
 
 def render(user: str) -> None:
@@ -25,5 +27,21 @@ def render(user: str) -> None:
         st.error("Please add a title.")
         return
     url = issue_url(category, title, description, contact, user)
+    # only the title and description go to the AI, never the contact details
+    answer = engine.run("feedback", feedback_task(category, title, description),
+                        accept_feedback(title, description), category, title, description)
     st.success("Your issue is ready. Open it on GitHub and press **Create** to file it.")
-    st.link_button("Open issue on GitHub", url, type="primary", icon=":material/open_in_new:")
+    if not answer:
+        st.link_button("Open issue on GitHub", url, type="primary", icon=":material/open_in_new:")
+        engine.offline_note("Tidying up the report")
+        return
+    tidy = answer.data
+    with st.container(border=True):
+        st.markdown(f"##### :material/auto_awesome: {tidy['title']}")
+        st.markdown(tidy["description"])
+    st.caption(f"Tidied up by AI ({engine.by_line(answer)}): clearer title, spelling fixed and the details "
+               "organised, with nothing added. Check it says what you meant.")
+    b1, b2 = st.columns(2)
+    b1.link_button("Open issue on GitHub", issue_url(category, tidy["title"], tidy["description"], contact, user),
+                   type="primary", icon=":material/open_in_new:", width="stretch")
+    b2.link_button("Use my own wording instead", url, icon=":material/edit:", width="stretch")

@@ -17,6 +17,8 @@ from nlp_checks import REPEAT_MIN, check
 from report import build_docx, build_markdown, build_pdf
 from score import compare_drafts, describe_counts, issue_counts, score_label, writing_score
 from structure import effort_summary, outline, sentence_effort, word_budget
+from ai_tasks import accept_writing, combine_writing, parts, writing_task
+from ui import engine
 from ui.listen import render_listen
 from ui.theme import card_html, counter, feed, final_output
 
@@ -141,13 +143,16 @@ def render_sentence_chart(text: str, lengths: list[int]) -> None:
     st.altair_chart((bars + line + label).properties(height=220), width="stretch")
 
 
-def render_highlighted(text: str, report, box) -> None:
+def render_highlighted(text: str, report, slot, ai_issues=()) -> None:
+    """The text with every issue marked, drawn into `slot` (an st.empty), so it can be redrawn once the
+    AI's suggestions arrive."""
     hidden = hidden_spans(mode())
     spans = [s for s in find_spans(text, report) if s[2] not in hidden]
+    spans += [(i.start, i.end, "ai") for i in ai_issues]
     kinds = ("typo", "opening", "wordy", "cliche", "informal", "adverb", "contraction", "spelling", "starts",
-             "passive", "long")
+             "passive", "long", "ai")
     present = [c for c in kinds if any(s[2] == c for s in spans)]
-    with box:
+    with slot.container():
         if present:
             st.markdown(legend_html(present), unsafe_allow_html=True)
         st.markdown(render_html(text, spans), unsafe_allow_html=True)
@@ -291,8 +296,37 @@ def render_deeper_look(text: str, nlp) -> None:
         render_listen(split_sentences(text))
 
 
-def render_improved(text: str, report, nlp) -> None:
-    fixed = apply_fixes(text, expand_contractions="contraction" not in ignored(mode()))
+def render_ai_review(review, answers) -> None:
+    st.markdown("#### :material/auto_awesome: AI review")
+    if review.issues:
+        feed([card_html("ai", "AI suggestion", f"{html.escape(i.problem)} <b>{html.escape(i.fix)}</b>", i.quote)
+              for i in review.issues])
+    else:
+        st.success("The AI found nothing more to fix.", icon=":material/auto_awesome:")
+    st.caption(f"By {engine.by_line(answers)}. The AI reads for meaning, so it catches things the rules can't; "
+               "it can also be wrong, so judge each suggestion yourself.")
+    engine.partial_note(answers, "your text")
+
+
+def expand() -> bool:
+    return "contraction" not in ignored(mode())
+
+
+def ai_review(text: str):
+    """(the AI's review of the whole text, the answers it came from), or (None, None) when it ran offline.
+    A long text is reviewed in parts."""
+    spans = parts(text)
+    answers = engine.run_parts("writing", [(writing_task(text[s:e]), accept_writing(text[s:e])) for s, e in spans],
+                               text)
+    if not answers:
+        return None, None
+    review = combine_writing(text, spans, [a.data if a else None for a in answers],
+                             lambda part: apply_fixes(part, expand_contractions=expand()).text)
+    return review, answers
+
+
+def render_improved(text: str, report, nlp, review=None, answers=None) -> None:
+    fixed = apply_fixes(text, expand_contractions=expand())
     if fixed.changes:
         done = ", ".join(f"“{p}” → {r or 'removed'}" + (f" ×{n}" if n > 1 else "") for p, r, n in fixed.changes)
         note = f"Easy fixes applied: {done}."
@@ -303,6 +337,17 @@ def render_improved(text: str, report, nlp) -> None:
             f"{len(report.long_sentences)} long sentence(s)" if report.long_sentences else ""]
     if todo := [t for t in todo if t]:
         note += f" Still to fix yourself: {', '.join(todo)} (see the cards above)."
+    if review and review.improved:
+        mixed = (f" {review.offline_parts} part(s) of your text kept the rule-based fixes because the AI's "
+                 "rewrite of them didn't pass its check." if review.offline_parts else "")
+        final_output("checker", "Improved Text", review.improved,
+                     f"Polished by AI ({engine.by_line(answers)}): grammar, clarity and flow, keeping your meaning."
+                     f"{mixed} Read it through before you use it.", "improved-text.txt")
+        with st.expander("Rule-based version (offline)"):
+            final_output("checker_offline", "Improved Text (offline)", fixed.text, note, "improved-text-offline.txt")
+        return
+    if review:
+        note += " (The AI's rewrite didn't pass the length check, so this is the rule-based version.)"
     final_output("checker", "Improved Text", fixed.text, note, "improved-text.txt")
 
 
@@ -328,9 +373,16 @@ def render_report(text: str, source: str, highlight_box=None) -> None:
         st.markdown(draft_change_html(prev, score, counts), unsafe_allow_html=True)
 
     box = highlight_box if highlight_box is not None else st.container()
-    render_highlighted(text, report, box)
     with box:
+        highlight_slot = st.empty()
+        render_highlighted(text, report, highlight_slot)
         render_issues(report, nlp)
+        review, answers = ai_review(text)
+        if review:
+            render_highlighted(text, report, highlight_slot, review.issues)
+            render_ai_review(review, answers)
+        else:
+            engine.offline_note("The AI review")
 
     if len(report.sentence_lengths) > 1:
         st.markdown("#### :material/bar_chart: Sentence lengths")
@@ -339,7 +391,7 @@ def render_report(text: str, source: str, highlight_box=None) -> None:
         render_sentence_chart(text, report.sentence_lengths)
 
     render_deeper_look(text, nlp)
-    render_improved(text, report, nlp)
+    render_improved(text, report, nlp, review, answers)
 
     st.markdown("#### :material/download: Download report")
     d_pdf, d_docx, d_md = st.columns(3)

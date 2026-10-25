@@ -2,7 +2,11 @@ import html
 
 import streamlit as st
 
-from assignment import check_assignment, coverage, improve_essay
+from ai_tasks import (
+    ESSAY_PART_CHARS, accept_assignment, assignment_task, combine_assignment, merge_assignment, parts,
+)
+from assignment import Requirement, check_assignment, coverage, improve_essay
+from ui import engine
 from ui.theme import clear_keys, counter, final_output
 
 GROUPS = (("Task", "What the question asks you to do"), ("Length", "Numbers and length"),
@@ -74,6 +78,15 @@ def render() -> None:
         return
 
     requirements = check_assignment(question, essay)
+    spans = parts(essay, ESSAY_PART_CHARS)
+    answers = engine.run_parts(
+        "assignment",
+        [(assignment_task(question, essay[s:e], requirements, (n, len(spans))), accept_assignment(requirements))
+         for n, (s, e) in enumerate(spans, 1)],
+        question, essay)
+    if answers:
+        review = combine_assignment([a.data if a else None for a in answers])
+        requirements = merge_assignment(requirements, review, Requirement)
     if not requirements:
         st.info("Couldn't find anything to check in that question. Paste the full wording, including any "
                 "word count and source requirements.")
@@ -86,8 +99,15 @@ def render() -> None:
         if rows:
             st.markdown(f"##### {title}")
             st.markdown("".join(requirement_html(r.label, r.status, r.detail) for r in rows), unsafe_allow_html=True)
-    st.caption("These checks look for signs in your wording (like “however” for evaluating, or the question's key "
-               "words), so they can miss a point made in other words. Use them as a checklist, not a mark.")
+    if answers:
+        st.caption(f":material/auto_awesome: Tasks, topics and structure judged by AI ({engine.by_line(answers)}), "
+                   "which reads for meaning; word counts and citations are counted exactly. The AI can be wrong, "
+                   "so use this as a checklist, not a mark.")
+        engine.partial_note(answers, "your essay")
+    else:
+        st.caption("These checks look for signs in your wording (like “however” for evaluating, or the question's "
+                   "key words), so they can miss a point made in other words. Use them as a checklist, not a mark.")
+        engine.offline_note("This check")
     render_improved(essay, requirements)
 
 

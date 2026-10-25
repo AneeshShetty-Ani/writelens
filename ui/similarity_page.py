@@ -3,6 +3,7 @@ import streamlit as st
 from documents import SUPPORTED, DocumentError, extract_text
 from highlight import legend_html, render_html
 from similarity import MATCH_WORDS, NGRAM, compare
+from ui.plagiarism_page import render_paraphrases
 from ui.theme import clear_keys, counter, final_output
 
 
@@ -21,8 +22,9 @@ def document_input(label: str, key: str) -> str:
     return text
 
 
-def summary(r) -> str:
-    """The comparison in plain sentences, ready to paste into notes or a report."""
+def summary(r, text_a: str = "", reworded=None) -> str:
+    """The comparison in plain sentences, ready to paste into notes or a report. `reworded` is what the AI
+    found reworded from B in A (None when it ran offline)."""
     overlap = max(r.coverage_a, r.coverage_b)
     if overlap >= 0.5:
         verdict = "The documents share large parts of their text word for word."
@@ -41,6 +43,9 @@ def summary(r) -> str:
     ]
     if r.passages:
         lines += ["", "Shared passages:"] + [f"- {p}" for p in r.passages]
+    if reworded is not None:
+        lines += ["", f"Passages of Document A reworded from Document B (found by AI): {len(reworded)}."]
+        lines += [f"- {' '.join(text_a[p.start:p.end].split())}" for p in reworded]
     return "\n".join(lines)
 
 
@@ -48,7 +53,8 @@ def render() -> None:
     st.markdown("### :material/compare_arrows: Pairwise Document Similarity Checker")
     st.write(
         f"Compare two documents side by side: exact {NGRAM}-word n-gram overlap, winnowing fingerprints, "
-        f"word-frequency similarity, and the passages ({MATCH_WORDS}+ identical words in a row) they share."
+        f"word-frequency similarity, and the passages ({MATCH_WORDS}+ identical words in a row) they share. "
+        "When the AI is available it also finds ideas from B that A puts in different words."
     )
 
     left, right = st.columns(2)
@@ -91,4 +97,5 @@ def render() -> None:
             for p in r.passages:
                 st.info(p)
 
-    final_output("compare", "Summary", summary(r), file_name="comparison-summary.txt")
+    reworded = render_paraphrases({"Document B": text_b}, text_a)
+    final_output("compare", "Summary", summary(r, text_a, reworded), file_name="comparison-summary.txt")

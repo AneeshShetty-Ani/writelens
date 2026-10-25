@@ -1,12 +1,17 @@
+import re
+
 import streamlit as st
 
+from ai_tasks import accept_citation, accept_web_details, citation_task, family, web_details_task
 from citations import (
-    KINDS, STYLES, CitationError, Reference, format_entry, from_csl_json, insert_citations,
-    lookup_doi, lookup_isbn, make_key, reference_list, to_bibtex, to_csl_json,
+    DOI_IN_TEXT, ISBN_IN_TEXT, KINDS, STYLES, CitationError, Reference, crossref_search, format_entry,
+    from_csl_json, from_fields, insert_citations, lookup_doi, lookup_isbn, make_key, parse_reference,
+    reference_list, to_bibtex, to_csl_json,
 )
 from documents import SUPPORTED, DocumentError, extract_text
+from ui import engine
 from ui.theme import clear_keys, counter
-from webcite import lookup_url
+from webcite import page_reference, read_page
 
 CONTAINER_LABEL = {"article": "Journal", "book": "Publisher", "web": "Website name"}
 
@@ -41,17 +46,84 @@ def add_isbn() -> None:
         st.session_state["cite_msg"] = ("success", f"Added **{ref.title}** as `[@{ref.key}]`.")
 
 
+def cite_page(url: str) -> tuple[Reference, str]:
+    """(the reference for a web page, a note on what the AI added). When the page's metadata has no author
+    or date, the AI looks for them in the page's text; it can only use names and years printed there."""
+    info = read_page(url)
+    missing = [k for k in ("authors", "year") if not info[k]]
+    if not missing or not info["text"]:
+        return page_reference(info, keys()), ""
+    answer = engine.run("webpage", web_details_task(info["title"], info["text"]), accept_web_details(info["text"]),
+                        info["url"], info["text"])
+    if not answer:
+        st.session_state.pop("ai_skipped", None)  # the page's own details are used, as offline
+        return page_reference(info, keys()), ""
+    found = [k for k in missing if answer.data[k]]
+    for k in found:
+        info[k] = answer.data[k]
+    words = {"authors": "author", "year": "date"}
+    note = (f" AI ({engine.by_line(answer)}) found the {' and '.join(words[k] for k in found)} in the page's text."
+            if found else "")
+    return page_reference(info, keys()), note
+
+
 def add_url() -> None:
     try:
-        ref = lookup_url(st.session_state.get("url_input", ""), keys())
+        ref, note = cite_page(st.session_state.get("url_input", ""))
     except CitationError as exc:
         st.session_state["cite_msg"] = ("error", str(exc))
     else:
         refs().append(ref)
         st.session_state["url_input"] = ""
         missing = [label for label, value in (("author", ref.authors), ("year", ref.year)) if not value]
-        note = f" The page doesn't list a {' or '.join(missing)}; that's normal for many websites." if missing else ""
+        if missing:
+            note += f" The page doesn't list a {' or '.join(missing)}; that's normal for many websites."
         st.session_state["cite_msg"] = ("success", f"Added **{ref.title}** as `[@{ref.key}]`.{note}")
+
+
+def resolve_reference(text: str) -> tuple[Reference, str]:
+    """(the reference, how it was found) for a reference written any way. Exact identifiers first, then the
+    AI reads it and Crossref checks it; without the AI, Crossref is searched with the text itself, and
+    without Crossref either, the reference is read offline from its punctuation (APA, MLA and so on)."""
+    if m := DOI_IN_TEXT.search(text):
+        return lookup_doi(m.group().rstrip(".,;)"), keys()), "found by its DOI"
+    if m := ISBN_IN_TEXT.search(text):
+        return lookup_isbn(m.group(1), keys()), "found by its ISBN"
+    if re.fullmatch(r"https?://\S+", text):
+        ref, note = cite_page(text)
+        return ref, "read from the web page" + (f".{note.rstrip('.')}" if note else "")
+    answer = engine.run("citation", citation_task(text), accept_citation(text), text)
+    if answer:
+        fields = answer.data
+        query = " ".join([fields["title"], *(family(a) for a in fields["authors"][:2]), fields["year"]])
+        if ref := crossref_search(query, keys(), check_against=text, year=fields["year"]):
+            return ref, f"read by AI ({engine.by_line(answer)}) and matched to its Crossref record"
+        return (from_fields(fields, keys()), f"read by AI ({engine.by_line(answer)}); it isn't in Crossref (normal "
+                "for many books and websites), so check the details")
+    st.session_state.pop("ai_skipped", None)  # the messages below say how it was read instead
+    parsed = parse_reference(text)
+    if ref := crossref_search(text, keys(), year=parsed["year"] if parsed else ""):
+        return ref, "found in Crossref"
+    if parsed:
+        return from_fields(parsed, keys()), "read offline from how it's written, so check the details"
+    raise CitationError("Couldn't recognise that reference" + (" (the AI is unavailable right now)" if engine.available()
+                        else "") + ". Write it in a standard style such as APA or MLA, use its DOI or ISBN, or "
+                        "enter it manually.")
+
+
+def add_any() -> None:
+    text = " ".join(st.session_state.get("any_input", "").split())
+    if not text:
+        st.session_state["cite_msg"] = ("warning", "Paste a reference first.")
+        return
+    try:
+        ref, how = resolve_reference(text)
+    except CitationError as exc:
+        st.session_state["cite_msg"] = ("error", str(exc))
+    else:
+        refs().append(ref)
+        st.session_state["any_input"] = ""
+        st.session_state["cite_msg"] = ("success", f"Added **{ref.title}** as `[@{ref.key}]`: {how}.")
 
 
 def remove_ref(key: str) -> None:
@@ -104,13 +176,22 @@ def render() -> None:
     style = st.selectbox("Citation Format", STYLES, key="cite_style")
 
     st.markdown("#### 1. Your references")
-    tab_url, tab_doi, tab_isbn, tab_manual, tab_import = st.tabs(
-        ["Cite a website", "Look up DOI", "Book (ISBN)", "Enter manually", "Import JSON"])
+    tab_any, tab_url, tab_doi, tab_isbn, tab_manual, tab_import = st.tabs(
+        ["Paste any reference", "Cite a website", "Look up DOI", "Book (ISBN)", "Enter manually", "Import JSON"])
+    with tab_any:
+        st.text_area("Reference", key="any_input", height=90, label_visibility="collapsed",
+                     placeholder="Paste a reference in any style, even a messy one, e.g.\n"
+                                 "lecun bengio hinton 2015 deep learning nature")
+        st.button("Read reference", key="any_lookup", on_click=add_any, icon=":material/auto_awesome:")
+        st.caption("A DOI, ISBN or web address is looked up directly. Otherwise AI reads the reference (when "
+                   "available) and Crossref, a free database of published works, checks it's real. Without "
+                   "either, a reference in a standard style (APA, MLA, Harvard, Chicago, IEEE) is read offline.")
     with tab_url:
         c1, c2 = st.columns([4, 1], vertical_alignment="bottom")
         c1.text_input("Web page address", key="url_input", placeholder="e.g. https://en.wikipedia.org/wiki/Photosynthesis")
         c2.button("Fetch details", key="url_lookup", on_click=add_url, icon=":material/language:", width="stretch")
-        st.caption("Reads the page's title, author, date and site name for you. Check them before you submit.")
+        st.caption("Reads the page's title, author, date and site name for you; when the page hides its author or "
+                   "date, AI looks for them in the text. Check them before you submit.")
     with tab_doi:
         c1, c2 = st.columns([4, 1], vertical_alignment="bottom")
         c1.text_input("DOI", key="doi_input", placeholder="e.g. 10.1038/nature14539 or https://doi.org/...")
